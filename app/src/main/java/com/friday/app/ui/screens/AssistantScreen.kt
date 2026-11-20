@@ -1,5 +1,7 @@
 package com.friday.app.ui.screens
 
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -161,7 +163,7 @@ fun AssistantScreen(nav: NavController, listen: Boolean) {
     val online by vm.online.collectAsStateWithLifecycle()
     val c = Friday.colors
     val tabBar = LocalTabBarHeight.current
-    var input by rememberSaveable { mutableStateOf("") }
+    val input = rememberTextFieldState()
     val list = rememberLazyListState()
     val dictate = rememberDictation { vm.send(it) }
     LaunchedEffect(listen) { if (listen) dictate?.invoke() }
@@ -206,9 +208,8 @@ fun AssistantScreen(nav: NavController, listen: Boolean) {
             item(key = "end") { Spacer(Modifier.height(4.dp)) }
         }
         CaptureBar(
-            value = input,
-            onValueChange = { input = it },
-            onSubmit = { vm.send(input); input = "" },
+            state = input,
+            onSubmit = { vm.send(input.text.toString()); input.clearText() },
             placeholder = stringResource(R.string.ask_friday),
             onMic = dictate,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),

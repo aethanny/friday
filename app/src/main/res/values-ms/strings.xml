@@ -358,9 +358,6 @@
     <string name="free_time_fits">“%1$s” muat dalam %2$s. Nak mula?</string>
     <string name="free_time_start">Anda boleh mula buat “%1$s” dalam %2$s.</string>
     <string name="free_time_empty">Tiada apa yang menunggu. Nikmati masa lapang anda.</string>
-    <plurals name="today_important">
-        <item quantity="other">Anda ada %d perkara penting hari ini:</item>
-    </plurals>
     <plurals name="today_count">
         <item quantity="other">Anda ada %d perkara hari ini:</item>
     </plurals>

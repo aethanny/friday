@@ -1,5 +1,8 @@
 package com.friday.app.ui.screens
 
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -159,7 +162,7 @@ fun TaskEditorScreen(nav: NavController, id: Long) {
     var pickRepeat by remember { mutableStateOf(false) }
     var cueSheet by remember { mutableStateOf<CueEntity?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
-    var newStep by remember { mutableStateOf("") }
+    val newStep = rememberTextFieldState()
 
     val details = d
     LargeTitleScreen(
@@ -287,14 +290,14 @@ fun TaskEditorScreen(nav: NavController, id: Long) {
                     Ic(R.drawable.ic_add, tint = c.accent, size = 22.dp)
                     Spacer(Modifier.width(14.dp))
                     BasicTextField(
-                        newStep, { newStep = it },
+                        state = newStep,
                         modifier = Modifier.weight(1f).padding(vertical = 15.dp),
-                        singleLine = true,
+                        lineLimits = TextFieldLineLimits.SingleLine,
                         textStyle = MaterialTheme.typography.bodyLarge.copy(color = c.text),
                         cursorBrush = SolidColor(c.accent),
                         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { vm.addStep(newStep); newStep = "" }),
-                        decorationBox = { inner -> Box { if (newStep.isEmpty()) Text(stringResource(R.string.add_step), style = MaterialTheme.typography.bodyLarge, color = c.accent); inner() } },
+                        onKeyboardAction = { vm.addStep(newStep.text.toString()); newStep.clearText() },
+                        decorator = { inner -> Box { if (newStep.text.isEmpty()) Text(stringResource(R.string.add_step), style = MaterialTheme.typography.bodyLarge, color = c.accent); inner() } },
                     )
                 }
             }

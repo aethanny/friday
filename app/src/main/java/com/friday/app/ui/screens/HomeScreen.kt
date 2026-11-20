@@ -1,5 +1,8 @@
 package com.friday.app.ui.screens
 
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -167,7 +170,7 @@ fun HomeScreen(nav: NavController) {
     val c = Friday.colors
     val toaster = LocalToaster.current
     val scope = rememberCoroutineScope()
-    var input by rememberSaveable { mutableStateOf("") }
+    val input = rememberTextFieldState()
     var chips by remember { mutableStateOf<List<String>>(emptyList()) }
     var prompt by remember { mutableStateOf<String?>(null) }
     var recovery by remember { mutableStateOf<Recovery?>(null) }
@@ -175,7 +178,7 @@ fun HomeScreen(nav: NavController) {
 
     fun submit(text: String) {
         if (text.isBlank()) return
-        input = ""
+        input.clearText()
         scope.launch {
             val r = vm.capture(text)
             chips = r.chips
@@ -292,11 +295,16 @@ fun HomeScreen(nav: NavController) {
             }
         }
 
+        // Keeps scrolled content from running under the status bar icons.
+        Box(Modifier.fillMaxWidth().height(top).background(c.background.copy(alpha = 0.97f)))
+
         Column(
             Modifier
                 .align(Alignment.BottomCenter)
                 .imePadding()
                 .padding(bottom = tabBar)
+                // Content fades out under the floating capture bar instead of colliding with it.
+                .background(Brush.verticalGradient(0f to c.background.copy(alpha = 0f), 0.35f to c.background))
                 .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
             AnimatedVisibility(chips.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
@@ -309,9 +317,8 @@ fun HomeScreen(nav: NavController) {
                 }
             }
             CaptureBar(
-                value = input,
-                onValueChange = { input = it },
-                onSubmit = { submit(input) },
+                state = input,
+                onSubmit = { submit(input.text.toString()) },
                 placeholder = stringResource(R.string.capture_placeholder),
                 onMic = dictate,
             )

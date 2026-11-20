@@ -146,7 +146,12 @@ private fun AppNav(pendingRoute: StateFlow<String?>, consumeRoute: () -> Unit) {
     LaunchedEffect(pending) {
         val p = pending ?: return@LaunchedEffect
         consumeRoute()
-        if (p.substringBefore("?") in TABS) nav.navigateTab(p) else nav.navigate(p) { launchSingleTop = true }
+        when {
+            p.substringBefore("?") in TABS -> nav.navigateTab(p)
+            // Coming back from a notification or the shield: one focus screen, directly above Home.
+            p.startsWith("focus") -> nav.navigate(p) { popUpTo(nav.graph.startDestinationId); launchSingleTop = true }
+            else -> nav.navigate(p) { launchSingleTop = true }
+        }
     }
 
     CompositionLocalProvider(LocalToaster provides toaster, LocalTabBarHeight provides if (showTabs) 56.dp + navInset else 0.dp) {
@@ -251,7 +256,7 @@ private fun TabBar(current: String?, onSelect: (String) -> Unit) {
         Triple("tasks", R.string.tab_tasks, R.drawable.ic_checklist to R.drawable.ic_checklist_fill),
         Triple("assistant", R.string.tab_assistant, R.drawable.ic_graphic_eq to R.drawable.ic_graphic_eq_fill),
     )
-    Column(Modifier.fillMaxWidth().background(c.background.copy(alpha = 0.97f))) {
+    Column(Modifier.fillMaxWidth().background(c.background)) {
         HorizontalDivider(thickness = 0.5.dp, color = c.separator)
         Row(Modifier.fillMaxWidth().navigationBarsPadding().height(56.dp)) {
             items.forEach { (route, label, icons) ->

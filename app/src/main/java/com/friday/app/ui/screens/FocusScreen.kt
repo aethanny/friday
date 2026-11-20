@@ -367,7 +367,7 @@ private fun Running(s: FocusSessionEntity, task: TaskWithDetails?, now: Long, vm
         Row(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             SecondaryButton(stringResource(R.string.plus_5), { vm.addMinutes(s.id) }, height = 56.dp)
             if (paused) PrimaryButton(stringResource(R.string.resume), { vm.resume(s.id) }, Modifier.weight(1f).height(56.dp), icon = R.drawable.ic_play_arrow)
-            else PrimaryButton(stringResource(R.string.pause), { vm.pause(s.id) }, Modifier.weight(1f).height(56.dp), icon = R.drawable.ic_pause, color = c.text)
+            else PrimaryButton(stringResource(R.string.pause), { vm.pause(s.id) }, Modifier.weight(1f).height(56.dp), icon = R.drawable.ic_pause, color = c.text, contentColor = c.surface)
         }
         Spacer(Modifier.height(8.dp))
         TextAction(stringResource(R.string.end_session), onEnd, color = c.red)

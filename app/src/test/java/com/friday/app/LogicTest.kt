@@ -45,9 +45,11 @@ class LogicTest {
         val bill = task("bill", due = today, id = 1)
         val poster = task("poster", important = true, due = today, id = 2)
         val guitar = task("guitar", important = true, id = 3)
-        val live = task("live", important = true, due = today, time = LocalTime.of(21, 0), id = 4)
-        val ranked = Matrix.rankForNow(listOf(guitar, live, bill, poster), now).map { it.title }
-        assertEquals(listOf("poster", "bill", "guitar", "live"), ranked)
+        val live = task("live", important = true, due = today, time = LocalTime.of(21, 0), duration = 60, id = 4)
+        val report = task("report", important = true, due = today, time = LocalTime.of(17, 0), id = 5)
+        val ranked = Matrix.rankForNow(listOf(guitar, live, bill, report, poster), now).map { it.title }
+        // Deadlines rank by quadrant; a scheduled activity later today waits until it is near.
+        assertEquals(listOf("poster", "report", "bill", "guitar", "live"), ranked)
     }
 
     @Test fun overdueRules() {

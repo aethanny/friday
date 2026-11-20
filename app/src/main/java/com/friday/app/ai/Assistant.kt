@@ -11,6 +11,7 @@ import com.friday.app.data.db.FocusSessionEntity
 import com.friday.app.data.db.FridayDatabase
 import com.friday.app.data.db.TaskEntity
 import com.friday.app.data.db.TaskWithDetails
+import com.friday.app.domain.FocusMath
 import com.friday.app.domain.Matrix
 import com.friday.app.ui.Fmt
 import java.time.LocalDateTime
@@ -262,7 +263,7 @@ class AssistantEngine(
                 null -> null
             }
             parts += if (s.endedAt == null) r.getString(R.string.recovery_session_running, Fmt.duration(r, s.plannedMin))
-            else r.getString(R.string.recovery_session_ended, Fmt.duration(r, s.plannedMin), Fmt.duration(r, ago.coerceAtLeast(1))) +
+            else r.getString(R.string.recovery_session_ended, Fmt.duration(r, (FocusMath.elapsedMs(s, s.endedAt) / 60_000).toInt().coerceAtLeast(1)), Fmt.duration(r, ago.coerceAtLeast(1))) +
                 (how?.let { " " + r.getString(R.string.recovery_outcome, it) } ?: "")
             s.stopNote?.let { parts += r.getString(R.string.recovery_stopped_at, it) }
         }
@@ -276,10 +277,8 @@ class AssistantEngine(
         val open = tasks.openTasks().map { it.task }
         val ranked = Matrix.rankForNow(open.filter { it.dueDate != null && !it.dueDate.isAfter(today) }, n)
         if (ranked.isEmpty()) return EngineResult(r.getString(R.string.today_empty), lang = lang)
-        val important = ranked.filter { it.important }
-        val head = if (important.isNotEmpty()) r.resources.getQuantityString(R.plurals.today_important, important.size, important.size)
-        else r.resources.getQuantityString(R.plurals.today_count, ranked.size, ranked.size)
-        val list = ranked.take(5).joinToString("\n") { t -> "• " + t.title + (t.dueTime?.let { " · " + Fmt.time(r, it) } ?: "") + if (Matrix.isOverdue(t, n)) " · " + r.getString(R.string.overdue).lowercase() else "" }
+        val head = r.resources.getQuantityString(R.plurals.today_count, ranked.size, ranked.size)
+        val list = ranked.take(5).joinToString("\n") { t -> (if (t.important) "★ " else "• ") + t.title + (t.dueTime?.let { " · " + Fmt.time(r, it) } ?: "") + if (Matrix.isOverdue(t, n)) " · " + r.getString(R.string.overdue).lowercase() else "" }
         return EngineResult("$head\n\n$list", lang = lang)
     }
 

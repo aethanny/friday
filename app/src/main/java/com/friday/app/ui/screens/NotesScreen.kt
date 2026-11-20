@@ -1,5 +1,7 @@
 package com.friday.app.ui.screens
 
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -91,7 +93,7 @@ fun NotesScreen(nav: NavController) {
     val ctx = LocalContext.current
     val toaster = LocalToaster.current
     val scope = rememberCoroutineScope()
-    var draft by remember { mutableStateOf("") }
+    val draft = rememberTextFieldState()
     var open by remember { mutableStateOf<NoteEntity?>(null) }
     val inbox = notes.orEmpty().filter { it.inbox }
     val kept = notes.orEmpty().filter { !it.inbox }
@@ -105,13 +107,13 @@ fun NotesScreen(nav: NavController) {
                 Ic(R.drawable.ic_lightbulb, tint = c.amber, size = 22.dp)
                 Spacer(Modifier.padding(start = 12.dp))
                 BasicTextField(
-                    draft, { draft = it },
+                    state = draft,
                     modifier = Modifier.weight(1f).padding(vertical = 16.dp),
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = c.text),
                     cursorBrush = SolidColor(c.accent),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { vm.add(draft, inbox = true); draft = "" }),
-                    decorationBox = { inner -> Box { if (draft.isEmpty()) Text(stringResource(R.string.note_hint), style = MaterialTheme.typography.bodyLarge, color = c.textTertiary); inner() } },
+                    onKeyboardAction = { vm.add(draft.text.toString(), inbox = true); draft.clearText() },
+                    decorator = { inner -> Box { if (draft.text.isEmpty()) Text(stringResource(R.string.note_hint), style = MaterialTheme.typography.bodyLarge, color = c.textTertiary); inner() } },
                 )
             }
         }

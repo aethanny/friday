@@ -380,10 +380,6 @@
     <string name="free_time_fits">“%1$s” fits into %2$s. Want to start?</string>
     <string name="free_time_start">You could make a start on “%1$s” in %2$s.</string>
     <string name="free_time_empty">Nothing is waiting. Enjoy the free time.</string>
-    <plurals name="today_important">
-        <item quantity="one">You have 1 important thing today:</item>
-        <item quantity="other">You have %d important things today:</item>
-    </plurals>
     <plurals name="today_count">
         <item quantity="one">You have 1 thing today:</item>
         <item quantity="other">You have %d things today:</item>

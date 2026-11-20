@@ -95,7 +95,8 @@ object Matrix {
         val today = now.toLocalDate()
         fun tier(t: TaskEntity): Int {
             val start = Schedule.start(t)
-            if (start != null && start.isAfter(now.plusMinutes(60))) return 5 // can't do it yet
+            // Scheduled activities (with a duration) can't be done yet; a clock time without duration is a deadline.
+            if (start != null && t.durationMin != null && start.isAfter(now.plusMinutes(60))) return 5
             if (start != null && !start.isAfter(now.plusMinutes(60)) && !isOverdue(t, now) && !start.toLocalDate().isBefore(today)) return 1
             return when (quadrant(t, today)) {
                 Quadrant.DO -> 0

@@ -1,5 +1,6 @@
 package com.friday.app.focus
 
+import androidx.activity.enableEdgeToEdge
 import android.app.AppOpsManager
 import android.app.Service
 import android.app.usage.UsageEvents
@@ -160,6 +161,7 @@ class ShieldService : Service() {
 class ShieldActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         val pkg = intent.getStringExtra(ShieldService.EXTRA_PACKAGE).orEmpty()
         val c = container
         setContent {

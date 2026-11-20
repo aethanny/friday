@@ -1,5 +1,6 @@
 package com.friday.app.ui.settings
 
+import androidx.compose.foundation.clickable
 import android.app.LocaleManager
 import android.content.Context
 import android.content.Intent
@@ -358,7 +359,7 @@ fun ShieldSettingsScreen(nav: NavController) {
                     ordered.forEachIndexed { i, app ->
                         if (i > 0) RowDivider(64.dp)
                         Row(
-                            Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+                            Modifier.fillMaxWidth().clickable { vm.toggle(app.pkg, app.pkg !in selected) }.heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             app.icon?.let { Image(it, null, Modifier.size(32.dp).clip(RoundedCornerShape(8.dp))) } ?: Ic(R.drawable.ic_grid_view, size = 32.dp)

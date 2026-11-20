@@ -1,5 +1,7 @@
 package com.friday.app.ui.components
 
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.view.View
@@ -136,6 +138,7 @@ fun PrimaryButton(
     @DrawableRes icon: Int? = null,
     enabled: Boolean = true,
     color: Color = Friday.colors.accent,
+    contentColor: Color = Color.White,
 ) {
     val c = Friday.colors
     Row(
@@ -149,10 +152,10 @@ fun PrimaryButton(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Ic(icon, tint = if (enabled) Color.White else c.textTertiary, size = 20.dp)
+            Ic(icon, tint = if (enabled) contentColor else c.textTertiary, size = 20.dp)
             Spacer(Modifier.width(8.dp))
         }
-        Text(text, style = MaterialTheme.typography.labelLarge, color = if (enabled) Color.White else c.textTertiary)
+        Text(text, style = MaterialTheme.typography.labelLarge, color = if (enabled) contentColor else c.textTertiary)
     }
 }
 
@@ -471,7 +474,7 @@ fun LargeTitleScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = top + 44.dp, bottom = maxOf(LocalTabBarHeight.current, bottom) + bottomExtra),
         ) {
-            item(key = "__title") {
+            if (title.isNotEmpty()) item(key = "__title") {
                 Text(
                     title,
                     style = MaterialTheme.typography.displaySmall,
@@ -612,13 +615,11 @@ fun TaskRow(
 
 @Composable
 fun CaptureBar(
-    value: String,
-    onValueChange: (String) -> Unit,
+    state: TextFieldState,
     onSubmit: () -> Unit,
     placeholder: String,
     modifier: Modifier = Modifier,
     onMic: (() -> Unit)? = null,
-    focusRequester: FocusRequester? = null,
 ) {
     val c = Friday.colors
     Row(
@@ -632,25 +633,23 @@ fun CaptureBar(
             .padding(start = 18.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // State-based field: clearing it after Send also resets the keyboard's in-progress word.
         BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier
-                .weight(1f)
-                .padding(vertical = 14.dp)
-                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+            state = state,
+            modifier = Modifier.weight(1f).padding(vertical = 14.dp),
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = c.text),
             cursorBrush = SolidColor(c.accent),
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(onSend = { if (value.isNotBlank()) onSubmit() }),
-            maxLines = 4,
-            decorationBox = { inner ->
+            onKeyboardAction = { if (state.text.isNotBlank()) onSubmit() },
+            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 4),
+            decorator = { inner ->
                 Box {
-                    if (value.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = c.textTertiary, maxLines = 1)
+                    if (state.text.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = c.textTertiary, maxLines = 1)
                     inner()
                 }
             },
         )
+        val value = state.text
         if (value.isBlank() && onMic != null) {
             RoundIconButton(R.drawable.ic_mic, stringResource(R.string.speak), onMic)
         } else {
