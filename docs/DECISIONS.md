@@ -31,6 +31,13 @@ CONTEXT.md is the original brief; where this file differs, this file wins.
 - Notification actions: Done / Got it, Snooze (default length), and Snooze… (5 min, 15 min, 1 h, Tomorrow).
   "Tomorrow" moves the task and counts as a postponement.
 - Missed reminders (phone off) fire after reboot if they are less than an hour old.
+- "Only the focused task pops up" applies while a session is running; a paused session, or one
+  that finished and is waiting for its check-in, no longer quiets anything.
+- Place reminders ("when I leave/arrive at Home"): any place saved with "I'm here now" (no map).
+  Google Play services geofencing, registered only for places with an open reminder; a 30-minute
+  cooldown stops GPS wobble at the edge from repeating it. For a reminder with no date, the
+  notification offers "Mark done". Needs location "Allow all the time" and Google Location
+  Accuracy; FRIDAY shows a one-tap fix when either is missing. Deleting a place removes its reminders.
 
 ## Focus
 - Timestamps, not a running timer: the countdown survives closing the app, process death and reboots.

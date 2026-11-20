@@ -176,6 +176,8 @@ fun SettingsScreen(nav: NavController) {
                 ListRow(stringResource(R.string.set_snooze), icon = R.drawable.ic_snooze, iconBackground = c.red, value = Fmt.duration(ctx, st.defaultSnoozeMin), onClick = { dialog = "snooze" })
                 RowDivider(60.dp)
                 SwitchRow(stringResource(R.string.set_follow_up), st.followUp, { v -> vm.set { setFollowUp(v) } }, subtitle = stringResource(R.string.set_follow_up_sub), icon = R.drawable.ic_notifications, iconBackground = c.red)
+                RowDivider(60.dp)
+                ListRow(stringResource(R.string.places_title), icon = R.drawable.ic_location_on, iconBackground = c.red, onClick = { nav.navigate("settings/places") })
             }
         }
         item(key = "quiet") {

@@ -161,6 +161,9 @@ object FocusMath {
     fun endsAt(s: FocusSessionEntity): Long? =
         if (s.pausedAt != null) null else s.startedAt + s.pausedTotalMs + s.plannedMin * 60_000L
 
+    /** Only a running session with time left quiets other reminders; a finished one awaiting check-in doesn't. */
+    fun silencesOthers(s: FocusSessionEntity?, now: Long): Boolean = s != null && s.pausedAt == null && remainingMs(s, now) > 0
+
     fun progress(s: FocusSessionEntity, now: Long): Float =
         (elapsedMs(s, now).toFloat() / (s.plannedMin * 60_000f)).coerceIn(0f, 1f)
 }

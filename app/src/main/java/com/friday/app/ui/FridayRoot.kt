@@ -1,5 +1,6 @@
 package com.friday.app.ui
 
+import com.friday.app.ui.settings.PlacesScreen
 import com.friday.app.ui.settings.VoiceSettingsScreen
 import com.friday.app.ui.settings.AiSettingsScreen
 import android.graphics.Color as AndroidColor
@@ -186,6 +187,7 @@ private fun AppNav(pendingRoute: StateFlow<String?>, consumeRoute: () -> Unit) {
                 composable("settings/shield") { ShieldSettingsScreen(nav) }
                 composable("settings/ai") { AiSettingsScreen(nav) }
                 composable("settings/voice") { VoiceSettingsScreen(nav) }
+                composable("settings/places") { PlacesScreen(nav) }
             }
             AnimatedVisibility(showTabs, Modifier.align(Alignment.BottomCenter), enter = fadeIn(tween(150)), exit = fadeOut(tween(100))) {
                 TabBar(route) { nav.navigateTab(it) }

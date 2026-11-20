@@ -475,4 +475,27 @@
     <string name="set_assistant">Pembantu</string>
     <string name="on">Hidup</string>
     <string name="voice_phone">Suara telefon</string>
+
+    <!-- Places -->
+    <string name="places_title">Tempat</string>
+    <string name="places_intro">Simpan tempat yang anda selalu pergi, supaya FRIDAY boleh ingatkan anda bila sampai atau keluar. Berdiri di tempat itu dan ketik “Saya di sini sekarang”.</string>
+    <string name="places_here">Saya di sini sekarang</string>
+    <string name="places_locating">Mencari lokasi anda…</string>
+    <string name="places_no_fix">Tak dapat lokasi anda. Pastikan lokasi dihidupkan dan cuba lagi.</string>
+    <string name="places_name">Namakan tempat ini</string>
+    <string name="places_saved">“%1$s” disimpan</string>
+    <string name="places_saved_header">Tempat disimpan</string>
+    <string name="places_empty_title">Belum ada tempat</string>
+    <string name="places_empty_body">Simpan Rumah, Pejabat atau Kampus untuk peringatan seperti “bawa pengecas bila saya keluar rumah”.</string>
+    <string name="places_bg">Benarkan lokasi sepanjang masa</string>
+    <string name="places_bg_footer">Peringatan sampai dan keluar perlukan lokasi “Benarkan sepanjang masa”. FRIDAY hanya memantau tempat yang ada peringatan, dan tidak pernah merekod ke mana anda pergi.</string>
+    <string name="places_bg_title">Satu langkah lagi</string>
+    <string name="places_bg_body">Untuk mengingatkan anda bila sampai atau keluar, Android perlukan lokasi ditetapkan kepada “Benarkan sepanjang masa”. FRIDAY hanya menyemak tempat yang anda simpan, hanya ketika ada peringatan tempat, dan tidak pernah menyimpan sejarah ke mana anda pergi.</string>
+    <string name="place_reminder_add">Ingatkan saya di sesuatu tempat</string>
+    <string name="place_arrive">Bila saya sampai</string>
+    <string name="place_leave">Bila saya keluar</string>
+    <string name="place_message_hint">cth. Bawa pengecas anda</string>
+    <string name="places_accuracy">Hidupkan Ketepatan Lokasi Google</string>
+    <string name="places_accuracy_footer">Perkhidmatan lokasi telefon anda tidak dapat memantau tempat sekarang. Peringatan tempat berfungsi semula setelah Ketepatan Lokasi dihidupkan.</string>
+    <string name="places_accuracy_needed">Perhatian: peringatan tempat perlukan Ketepatan Lokasi Google. Hidupkan dalam Tetapan › Tempat.</string>
 </resources>

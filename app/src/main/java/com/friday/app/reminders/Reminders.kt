@@ -14,9 +14,11 @@ import com.friday.app.data.db.CueEntity
 import com.friday.app.data.db.FridayDatabase
 import com.friday.app.data.db.TaskEntity
 import com.friday.app.data.db.TaskWithDetails
+import com.friday.app.domain.FocusMath
 import com.friday.app.domain.Matrix
 import com.friday.app.domain.QuietHours
 import com.friday.app.domain.Schedule
+import com.friday.app.location.PlaceManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -34,7 +36,7 @@ fun BroadcastReceiver.launchAsync(block: suspend () -> Unit) {
 }
 
 /** Turns stored reminders into AlarmManager alarms. Alarm request codes are the cue ids. */
-class ReminderScheduler(private val ctx: Context, private val db: FridayDatabase) {
+class ReminderScheduler(private val ctx: Context, private val db: FridayDatabase, private val places: PlaceManager) {
     private val am = ctx.getSystemService(AlarmManager::class.java)
 
     fun canExact(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()
@@ -67,11 +69,13 @@ class ReminderScheduler(private val ctx: Context, private val db: FridayDatabase
     suspend fun syncTask(taskId: Long) {
         val d = db.tasks().getDetails(taskId) ?: return
         if (d.task.completedAt != null) d.cues.forEach { cancel(it.id) } else sync(d, fireMissed = false)
+        if (d.cues.any { it.placeId != null }) places.registerAll()
     }
 
     /** Re-arms every alarm. After a reboot or clock change, reminders missed in the last hour fire right away. */
     suspend fun syncAll(fireMissed: Boolean, onMissed: suspend (Long) -> Unit = {}) {
         db.tasks().openTasks().forEach { sync(it, fireMissed, onMissed) }
+        places.registerAll()
     }
 
     private suspend fun sync(d: TaskWithDetails, fireMissed: Boolean, onMissed: suspend (Long) -> Unit = {}) {
@@ -167,7 +171,7 @@ class ReminderEngine(
         val t = LocalDateTime.ofInstant(Instant.ofEpochMilli(now), ZoneId.systemDefault())
         if (s.quietEnabled && QuietHours.contains(t.hour * 60 + t.minute, s.quietStartMin, s.quietEndMin)) return Channels.QUIET
         val focus = db.focus().active()
-        if (focus != null && focus.taskId != task.id && !(task.important && Matrix.isUrgent(task, t.toLocalDate()))) return Channels.QUIET
+        if (FocusMath.silencesOthers(focus, now) && focus?.taskId != task.id && !(task.important && Matrix.isUrgent(task, t.toLocalDate()))) return Channels.QUIET
         return if (!cue.sound) Channels.REMINDERS_VIBRATE else Channels.REMINDERS
     }
 

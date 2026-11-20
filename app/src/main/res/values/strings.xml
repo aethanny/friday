@@ -500,4 +500,27 @@
     <string name="set_assistant">Assistant</string>
     <string name="on">On</string>
     <string name="voice_phone">Phone voice</string>
+
+    <!-- Places -->
+    <string name="places_title">Places</string>
+    <string name="places_intro">Save the places you go to, so FRIDAY can remind you when you arrive or leave. Stand at the place and tap “I’m here now”.</string>
+    <string name="places_here">I’m here now</string>
+    <string name="places_locating">Finding you…</string>
+    <string name="places_no_fix">Couldn’t get your location. Check that location is on and try again.</string>
+    <string name="places_name">Name this place</string>
+    <string name="places_saved">Saved “%1$s”</string>
+    <string name="places_saved_header">Saved places</string>
+    <string name="places_empty_title">No places yet</string>
+    <string name="places_empty_body">Save Home, Work or Campus to get reminders like “bring my charger when I leave home”.</string>
+    <string name="places_bg">Allow location all the time</string>
+    <string name="places_bg_footer">Arrive and leave reminders need location set to “Allow all the time”. FRIDAY only watches places that have a reminder, and never records where you go.</string>
+    <string name="places_bg_title">One more step</string>
+    <string name="places_bg_body">To remind you when you arrive or leave, Android needs location set to “Allow all the time”. FRIDAY only checks the places you saved, only while a place reminder is open, and never keeps a history of where you go.</string>
+    <string name="place_reminder_add">Remind me at a place</string>
+    <string name="place_arrive">When I arrive</string>
+    <string name="place_leave">When I leave</string>
+    <string name="place_message_hint">e.g. Bring your charger</string>
+    <string name="places_accuracy">Turn on Google Location Accuracy</string>
+    <string name="places_accuracy_footer">Your phone’s location service can’t watch places right now. Place reminders work again once Location Accuracy is on.</string>
+    <string name="places_accuracy_needed">Heads-up: place reminders need Google Location Accuracy. Turn it on in Settings › Places.</string>
 </resources>

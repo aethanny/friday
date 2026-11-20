@@ -89,7 +89,9 @@ class Notifier(private val ctx: Context) {
 
     /** Reminders whose "Done" finishes the whole task (as opposed to one step inside it). */
     fun isPrimary(t: TaskEntity, c: CueEntity) =
-        c.kind == CueKind.DAY || c.kind == CueKind.END || (c.kind == CueKind.START && t.durationMin == null)
+        c.kind == CueKind.DAY || c.kind == CueKind.END || (c.kind == CueKind.START && t.durationMin == null) ||
+            // "Remind me to bring my charger when I leave home": the place reminder is the whole task.
+            (c.placeId != null && t.dueDate == null)
 
     @SuppressLint("MissingPermission")
     fun postReminder(t: TaskEntity, c: CueEntity, channel: String, followUp: Boolean, snoozeMin: Int) {

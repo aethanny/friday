@@ -126,4 +126,14 @@ class LogicTest {
         assertEquals(start + 45 * 60_000L, FocusMath.endsAt(resumed))
         assertEquals(0L, FocusMath.remainingMs(s, start + 99 * 60_000L))
     }
+
+    @Test fun onlyARunningSessionSilencesOtherReminders() {
+        val start = 1_000_000L
+        val s = FocusSessionEntity(taskId = 1, taskTitle = "x", plannedMin = 25, startedAt = start)
+        assertTrue(FocusMath.silencesOthers(s, start + 60_000))
+        // Paused, finished-but-not-checked-in, or no session: reminders ring normally.
+        assertFalse(FocusMath.silencesOthers(s.copy(pausedAt = start + 60_000), start + 120_000))
+        assertFalse(FocusMath.silencesOthers(s, start + 26 * 60_000L))
+        assertFalse(FocusMath.silencesOthers(null, start))
+    }
 }

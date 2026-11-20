@@ -1,5 +1,6 @@
 package com.friday.app.ai
 
+import com.friday.app.location.PlaceManager
 import android.content.Context
 import android.content.res.Configuration
 import com.friday.app.R
@@ -72,6 +73,7 @@ class AssistantEngine(
     private val notes: NoteRepository,
     private val parser: CommandParser,
     private val remote: RemoteAssistant?,
+    private val places: PlaceManager? = null,
     private val now: () -> LocalDateTime = LocalDateTime::now,
 ) {
     private var pending: Parsed? = null
@@ -177,7 +179,8 @@ class AssistantEngine(
         }
         val id = tasks.save(TaskEntity(title = p.title, important = p.important))
         tasks.addPlaceCue(id, place.id, leave = p.placeEvent == PlaceEvent.LEAVE)
-        val msg = r.getString(if (p.placeEvent == PlaceEvent.LEAVE) R.string.place_set_leave else R.string.place_set_arrive, p.title, place.name)
+        val msg = r.getString(if (p.placeEvent == PlaceEvent.LEAVE) R.string.place_set_leave else R.string.place_set_arrive, p.title, place.name) +
+            if (places?.available?.value == false) "\n\n" + r.getString(R.string.places_accuracy_needed) else ""
         return EngineResult(msg, undo = Undo.DeleteTask(id), taskId = id, lang = p.lang)
     }
 

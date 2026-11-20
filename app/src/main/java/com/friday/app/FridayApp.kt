@@ -15,6 +15,7 @@ import com.friday.app.data.SettingsStore
 import com.friday.app.data.TaskRepository
 import com.friday.app.data.db.FridayDatabase
 import com.friday.app.focus.FocusController
+import com.friday.app.location.PlaceManager
 import com.friday.app.reminders.Briefing
 import com.friday.app.reminders.Notifier
 import com.friday.app.reminders.ReminderEngine
@@ -31,7 +32,8 @@ class AppContainer(val context: Context, inMemoryDb: Boolean = false) {
     val settings = SettingsStore(context)
     val secrets = SecretStore(context)
     val notifier = Notifier(context)
-    val scheduler = ReminderScheduler(context, db)
+    val places = PlaceManager(context, db)
+    val scheduler = ReminderScheduler(context, db, places)
     val tasks = TaskRepository(db, settings, scheduler)
     val notes = NoteRepository(db)
     val reminders = ReminderEngine(db, settings, scheduler, notifier, tasks)
@@ -40,7 +42,7 @@ class AppContainer(val context: Context, inMemoryDb: Boolean = false) {
     val parser = CommandParser()
     val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
     val ai = OnlineAssistant(context, db, settings, secrets, tasks, notes, reminders, OpenAiCompatClient(http))
-    val assistant = AssistantEngine(context, db, tasks, notes, parser, ai)
+    val assistant = AssistantEngine(context, db, tasks, notes, parser, ai, places)
     val speaker = Speaker(context, settings, secrets, http)
 }
 

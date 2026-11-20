@@ -1,5 +1,6 @@
 package com.friday.app.ui.screens
 
+import com.friday.app.data.db.PlaceEntity
 import com.friday.app.ui.settings.TextDialog
 import kotlinx.coroutines.flow.combine
 import com.friday.app.data.SecretStore
@@ -148,6 +149,8 @@ class TaskEditorViewModel(private val c: AppContainer, val id: Long) : ViewModel
     suspend fun breakDown(ctx: Context) = withAi(ctx) { c.ai.breakDown(c.tasks.details(id)!!, appLang(ctx)) }
     fun addCues(cues: List<CueEntity>) = viewModelScope.launch { cues.forEach { c.tasks.addCue(it) } }
     fun addSteps(steps: List<String>) = viewModelScope.launch { c.tasks.addSubtasks(id, steps) }
+    val places: StateFlow<List<PlaceEntity>> = c.db.places().observeAll().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    fun addPlaceCue(placeId: Long, leave: Boolean, message: String) = viewModelScope.launch { c.tasks.addPlaceCue(id, placeId, leave, message.trim().take(300)) }
     suspend fun delete() = c.tasks.delete(id)
     suspend fun complete() = c.tasks.complete(id)
     fun reopen() = viewModelScope.launch { c.tasks.reopen(id) }
@@ -193,6 +196,8 @@ fun TaskEditorScreen(nav: NavController, id: Long) {
     var suggestedCues by remember { mutableStateOf<List<CueEntity>?>(null) }
     var suggestedSteps by remember { mutableStateOf<List<String>?>(null) }
     var askFirstStep by remember { mutableStateOf(false) }
+    val places by vm.places.collectAsStateWithLifecycle()
+    var placeSheet by remember { mutableStateOf(false) }
     val suggest: () -> Unit = {
         scope.launch { vm.suggestReminders(ctx).onSuccess { suggestedCues = it }.onFailure { toaster.show(it.message.orEmpty()) } }
     }
@@ -293,14 +298,14 @@ fun TaskEditorScreen(nav: NavController, id: Long) {
             val placeCues = details.cues.filter { it.anchor == CueAnchor.LEAVE || it.anchor == CueAnchor.ARRIVE }
             Section(
                 header = stringResource(R.string.section_reminders),
-                footer = stringResource(if (t.dueDate == null && placeCues.isEmpty()) R.string.reminders_need_date else R.string.reminders_footer),
+                footer = stringResource(if (t.dueDate == null && placeCues.isEmpty() && places.isEmpty()) R.string.reminders_need_date else R.string.reminders_footer),
                 modifier = Modifier.padding(top = 22.dp),
             ) {
                 (timeCues + placeCues).forEachIndexed { i, cue ->
                     if (i > 0) RowDivider(52.dp)
                     val at = Schedule.trigger(t, cue)
                     ListRow(
-                        title = Fmt.cueWhen(ctx, cue) + (at?.let { " · " + Fmt.time(ctx, it.toLocalTime()) } ?: ""),
+                        title = Fmt.cueWhen(ctx, cue, places.firstOrNull { it.id == cue.placeId }?.name) + (at?.let { " · " + Fmt.time(ctx, it.toLocalTime()) } ?: ""),
                         subtitle = Fmt.cueMessage(ctx, t, cue),
                         icon = if (cue.kind == CueKind.CUSTOM) R.drawable.ic_notifications else R.drawable.ic_alarm,
                         onClick = if (cue.kind == CueKind.CUSTOM) ({ cueSheet = cue }) else null,
@@ -318,6 +323,10 @@ fun TaskEditorScreen(nav: NavController, id: Long) {
                     ListRow(stringResource(R.string.add_reminder), icon = R.drawable.ic_add, titleColor = c.accent, onClick = {
                         cueSheet = CueEntity(taskId = t.id, kind = CueKind.CUSTOM, anchor = if (t.dueTime != null) CueAnchor.START else CueAnchor.DAY, offsetMin = if (t.dueTime != null) 10 else 20 * 60 - 24 * 60)
                     }, chevron = false)
+                }
+                if (places.isNotEmpty()) {
+                    if (details.cues.isNotEmpty() || t.dueDate != null) RowDivider(52.dp)
+                    ListRow(stringResource(R.string.place_reminder_add), icon = R.drawable.ic_location_on, titleColor = c.accent, onClick = { placeSheet = true }, chevron = false)
                 }
                 if (reusable.isNotEmpty()) {
                     RowDivider(52.dp)
@@ -450,6 +459,9 @@ fun TaskEditorScreen(nav: NavController, id: Long) {
             empty = stringResource(R.string.no_suggestions),
             onDismiss = { suggestedSteps = null },
         ) { picked -> suggestedSteps = null; vm.addSteps(picked.map { steps[it] }) }
+    }
+    if (placeSheet) {
+        PlaceCueSheet(places, onDismiss = { placeSheet = false }) { placeId, leave, message -> placeSheet = false; vm.addPlaceCue(placeId, leave, message) }
     }
     if (askFirstStep) {
         TextDialog(stringResource(R.string.first_tiny_step), "", { askFirstStep = false }) { s -> askFirstStep = false; if (s.isNotBlank()) vm.addStep(s) }
@@ -633,6 +645,41 @@ private fun PickSheet(title: String, items: List<String>, empty: String, onDismi
                     Modifier.padding(horizontal = 16.dp, vertical = 16.dp).fillMaxWidth(), enabled = picked.isNotEmpty(),
                 )
             }
+        }
+    }
+}
+
+/** "When I leave Home" / "when I arrive at Campus", with an optional message. */
+@Composable
+private fun PlaceCueSheet(places: List<PlaceEntity>, onDismiss: () -> Unit, onSave: (Long, Boolean, String) -> Unit) {
+    val c = Friday.colors
+    var leave by remember { mutableStateOf(true) }
+    var placeId by remember { mutableStateOf(places.first().id) }
+    var message by remember { mutableStateOf("") }
+    FridaySheet(onDismiss) {
+        Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+            Text(stringResource(R.string.place_reminder_add), style = MaterialTheme.typography.titleLarge, color = c.text)
+            Spacer(Modifier.height(16.dp))
+            Segmented(listOf(stringResource(R.string.place_leave), stringResource(R.string.place_arrive)), if (leave) 0 else 1, { leave = it == 0 })
+            Spacer(Modifier.height(14.dp))
+            Section(inset = 0.dp) {
+                places.forEachIndexed { i, p ->
+                    if (i > 0) RowDivider()
+                    ListRow(p.name, onClick = { placeId = p.id }, chevron = false, trailing = if (p.id == placeId) ({ Ic(R.drawable.ic_check, tint = c.accent, size = 20.dp) }) else null)
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            Text(stringResource(R.string.cue_message_label), style = MaterialTheme.typography.bodySmall, color = c.textSecondary, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
+            BasicTextField(
+                message, { message = it.take(300) },
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.surface).padding(14.dp),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = c.text),
+                cursorBrush = SolidColor(c.accent),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                decorationBox = { inner -> Box { if (message.isEmpty()) Text(stringResource(R.string.place_message_hint), style = MaterialTheme.typography.bodyLarge, color = c.textTertiary); inner() } },
+            )
+            Spacer(Modifier.height(18.dp))
+            PrimaryButton(stringResource(R.string.save), { onSave(placeId, leave, message) }, Modifier.fillMaxWidth())
         }
     }
 }
