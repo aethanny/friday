@@ -91,3 +91,11 @@ CONTEXT.md is the original brief; where this file differs, this file wins.
 - "Get ready" and "Start" reminders are skipped only when the task is being focused on or a focus session on it ended in the last 30 min. `lastActiveAt` is not used: merely opening a task touches it, and a reminder that should arrive must never be lost. "Got it" still touches the task as in v1.0.
 - Reminders arriving within 2 min of another one still on screen are posted silently and grouped under one summary ("3 things now").
 - Reminders have two buttons: the main action and "Snooze…" (the fixed "Snooze N min" button is gone).
+
+## v1.1 places
+- Stillness check is 3 min (not 10), so short shop stops count as a visit.
+- Held reminders and quiet-place silence end after 3 h at most, so a stale hold can never swallow a reminder.
+- Follow-up nudges are suppressed at quiet places.
+- Legacy monthly tasks that had already drifted keep the drifted day: the original day cannot be recovered.
+- Lecture halls are not detected as hold places: OpenStreetMap rarely maps them. Use a saved Campus place instead.
+- "Went silent" is only claimed when Do Not Disturb access is granted.
