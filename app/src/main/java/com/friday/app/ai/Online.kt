@@ -2,6 +2,8 @@ package com.friday.app.ai
 
 import android.content.Context
 import com.friday.app.R
+import com.friday.app.data.MemoryRepository
+import com.friday.app.data.db.MemorySource
 import com.friday.app.data.NoteRepository
 import com.friday.app.data.SecretStore
 import com.friday.app.data.SettingsStore
@@ -118,7 +120,7 @@ data class AiAction(
 )
 
 @Serializable
-data class AiReply(val reply: String = "", val actions: List<AiAction> = emptyList())
+data class AiReply(val think: String = "", val reply: String = "", val actions: List<AiAction> = emptyList())
 
 @Serializable
 data class AiCue(val `when`: String = "", val minutes: Int = 0, val time: String? = null, val message: String = "")
@@ -138,6 +140,7 @@ sealed interface Action {
     data class Complete(val taskId: Long) : Action
     data class Snooze(val taskId: Long, val minutes: Int) : Action
     data class Focus(val taskId: Long?, val minutes: Int) : Action
+    data class Remember(val text: String) : Action
 }
 
 object AiActions {
@@ -198,6 +201,7 @@ object AiActions {
             }
             "COMPLETE_TASK" -> id?.let { Action.Complete(it) }
             "SNOOZE_REMINDER" -> if (id == null) null else a.minutes?.takeIf { it in 1..1440 }?.let { Action.Snooze(id, it) }
+            "REMEMBER" -> clean(a.text, 200)?.let { Action.Remember(it) }
             "START_FOCUS" -> Action.Focus(id, (a.minutes ?: 25).coerceIn(1, 180))
             else -> null
         }
@@ -218,6 +222,7 @@ class OnlineAssistant(
     private val secrets: SecretStore,
     private val tasks: TaskRepository,
     private val notes: NoteRepository,
+    private val memory: MemoryRepository,
     private val reminders: ReminderEngine,
     private val client: OpenAiCompatClient = OpenAiCompatClient(),
     private val now: () -> LocalDateTime = LocalDateTime::now,
@@ -266,6 +271,7 @@ class OnlineAssistant(
         var proposal: Proposal? = null
         var focus: Action.Focus? = null
         var created: Long? = null
+        var remembered: String? = null
         for (raw in reply.actions.take(5)) {
             when (val a = AiActions.validate(raw, byId.keys, today)) {
                 is Action.Create -> {
@@ -278,11 +284,12 @@ class OnlineAssistant(
                 is Action.Complete -> if (proposal == null) proposal = Proposal(ProposalKind.COMPLETE_TASK, a.taskId, r.getString(R.string.mark_done_label, byId.getValue(a.taskId).task.title))
                 is Action.Snooze -> if (proposal == null) proposal = Proposal(ProposalKind.SNOOZE_REMINDER, a.taskId, r.getString(R.string.snooze_label, byId.getValue(a.taskId).task.title, Fmt.duration(r, a.minutes)), minutes = a.minutes)
                 is Action.Focus -> focus = a
+                is Action.Remember -> memory.add(a.text, MemorySource.CHAT)?.let { undos += Undo.DeleteMemory(it); remembered = r.getString(R.string.remembered_line, a.text) }
                 null -> Unit
             }
         }
         return EngineResult(
-            text = reply.reply.trim().ifBlank { r.getString(R.string.ai_done) }.take(1500),
+            text = reply.reply.trim().ifBlank { r.getString(R.string.ai_done) }.take(1500) + remembered?.let { "\n\n$it" }.orEmpty(),
             undo = when (undos.size) { 0 -> null; 1 -> undos[0]; else -> Undo.Many(undos) },
             proposal = proposal,
             taskId = created,
@@ -369,6 +376,10 @@ class OnlineAssistant(
             "${t.id} | ${t.title} | ${t.dueDate ?: "-"} | ${t.dueTime ?: "-"} | ${t.durationMin ?: "-"} | ${if (t.important) "yes" else "no"}"
         }.ifBlank { "(none)" }
         val focus = db.focus().active()?.let { "\nThe user is in a focus session on \"${it.taskTitle}\" with ${FocusMath.remainingMs(it, System.currentTimeMillis()) / 60_000} min left." }.orEmpty()
+        val memories = memory.all().joinToString("\n") { "- ${it.text}" }.ifBlank { "(nothing yet)" }
+        val postponed = open.map { it.task }.filter { it.postponeCount >= 2 }.take(10).joinToString("\n") { "- ${it.title} (moved ${it.postponeCount} times)" }
+        val lastFocus = db.focus().latest()?.takeIf { (it.endedAt ?: it.startedAt) > System.currentTimeMillis() - 24 * 3_600_000L }
+            ?.let { "\nLast focus: \"${it.taskTitle}\" — ${it.outcome?.name ?: "in progress"}" }.orEmpty()
         val name = settings.current().name.takeIf { it.isNotBlank() }?.let { " The user's name is $it." }.orEmpty()
         return """
             You are FRIDAY, a calm personal assistant inside the user's phone app. You help them remember things, focus and follow through.$name
@@ -376,8 +387,13 @@ class OnlineAssistant(
             Now: ${n.format(DateTimeFormatter.ofPattern("EEEE yyyy-MM-dd HH:mm", Locale.ENGLISH))} (local time).$focus
             Open tasks (id | title | due date | time | minutes | important):
             $tasksText
+            ${if (postponed.isBlank()) "" else "Tasks the user keeps putting off:\n$postponed"}$lastFocus
 
-            Respond ONLY with a JSON object: {"reply": string, "actions": [ ... ]}
+            What you know about the user:
+            $memories
+
+            Respond ONLY with a JSON object: {"think": string, "reply": string, "actions": [ ... ]}
+            "think": think first, privately: what time it is, what they're doing, their energy, what they keep avoiding, what you know about them. Then reply with ONE recommendation, not a menu.
             "reply": what you say, at most 3 short sentences (a short list is fine when asked what is on).
             "actions": zero or more of:
             {"type":"CREATE_TASK","title":str,"date":"YYYY-MM-DD","time":"HH:MM","durationMin":int,"important":bool,"repeat":"NONE|DAILY|WEEKDAYS|WEEKLY|MONTHLY"} (only title is required)
@@ -388,8 +404,10 @@ class OnlineAssistant(
             {"type":"COMPLETE_TASK","taskId":int}
             {"type":"SNOOZE_REMINDER","taskId":int,"minutes":int}
             {"type":"START_FOCUS","taskId":int,"minutes":int}
+            {"type":"REMEMBER","text":str} (a lasting fact about the user's routine or preferences they told you. Never health, diagnosis, medication, religion or relationships unless they explicitly ask you to remember it. Don't remember one-off tasks.)
             Rules: only use taskIds from the list. If something needed is missing or unclear (for example a reminder without a time), ask one short question and return no actions.
             Never delete anything. Don't invent tasks the user didn't ask for. Times are 24-hour local time.
+            Follow what you know about the user (e.g. if they hate long messages, be shorter).
         """.trimIndent()
     }
 

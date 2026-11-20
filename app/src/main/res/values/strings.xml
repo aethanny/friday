@@ -538,4 +538,5 @@
     <string name="line_time_up">Your focus session is done. How did it go?</string>
     <string name="battery_title">Let reminders through battery saving</string>
     <string name="battery_sub">Some phones delay or block reminders to save battery. Tap to let FRIDAY run unrestricted.</string>
+    <string name="remembered_line">Remembered: %1$s</string>
 </resources>

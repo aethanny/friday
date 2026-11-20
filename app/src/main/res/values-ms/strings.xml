@@ -513,4 +513,5 @@
     <string name="line_time_up">Sesi fokus anda sudah tamat. Bagaimana tadi?</string>
     <string name="battery_title">Benarkan peringatan melepasi penjimatan bateri</string>
     <string name="battery_sub">Sesetengah telefon melewatkan atau menyekat peringatan untuk jimat bateri. Ketik untuk benarkan FRIDAY berjalan tanpa sekatan.</string>
+    <string name="remembered_line">Diingat: %1$s</string>
 </resources>

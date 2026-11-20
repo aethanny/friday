@@ -43,8 +43,8 @@ class AppContainer(val context: Context, inMemoryDb: Boolean = false) {
     val focus = FocusController(context, db, notifier, scheduler)
     val parser = CommandParser()
     val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
-    val ai = OnlineAssistant(context, db, settings, secrets, tasks, notes, reminders, OpenAiCompatClient(http))
-    val assistant = AssistantEngine(context, db, tasks, notes, parser, ai, places)
+    val ai = OnlineAssistant(context, db, settings, secrets, tasks, notes, memory, reminders, OpenAiCompatClient(http))
+    val assistant = AssistantEngine(context, db, tasks, notes, memory, parser, ai, places)
     val speaker = Speaker(context, settings, secrets, http)
 }
 

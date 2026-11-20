@@ -4,6 +4,7 @@ import com.friday.app.location.PlaceManager
 import android.content.Context
 import android.content.res.Configuration
 import com.friday.app.R
+import com.friday.app.data.MemoryRepository
 import com.friday.app.data.NoteRepository
 import com.friday.app.data.TaskRepository
 import com.friday.app.data.TaskSnapshot
@@ -24,6 +25,7 @@ enum class Source { CAPTURE, CHAT, TASK_SHEET }
 sealed interface Undo {
     data class DeleteTask(val id: Long) : Undo
     data class DeleteNote(val id: Long) : Undo
+    data class DeleteMemory(val id: Long) : Undo
     data class Restore(val snapshot: TaskSnapshot) : Undo
     data class DeleteSteps(val ids: List<Long>) : Undo
     data class Many(val items: List<Undo>) : Undo
@@ -71,6 +73,7 @@ class AssistantEngine(
     private val db: FridayDatabase,
     private val tasks: TaskRepository,
     private val notes: NoteRepository,
+    private val memory: MemoryRepository,
     private val parser: CommandParser,
     private val remote: RemoteAssistant?,
     private val places: PlaceManager? = null,
@@ -192,6 +195,7 @@ class AssistantEngine(
         when (u) {
             is Undo.DeleteTask -> tasks.delete(u.id)
             is Undo.DeleteNote -> db.notes().get(u.id)?.let { notes.delete(it) }
+            is Undo.DeleteMemory -> db.memories().get(u.id)?.let { memory.delete(it) }
             is Undo.Restore -> tasks.restore(u.snapshot)
             is Undo.DeleteSteps -> db.tasks().deleteSubtasks(u.ids)
             is Undo.Many -> u.items.asReversed().forEach { undo(it) }

@@ -96,4 +96,15 @@ class OnlineAiTest {
     @Test fun reminderWithoutTimeRejectedEvenWithSpaces() {
         assertNull(AiActions.validate(AiAction(type = " CREATE_REMINDER ", title = "x"), emptySet(), java.time.LocalDate.of(2026, 11, 20)))
     }
+
+    @Test fun rememberValidated() {
+        assertEquals(Action.Remember("Gym after 7 PM"), AiActions.validate(AiAction(type = "REMEMBER", text = "  Gym after 7 PM "), emptySet(), today))
+        assertNull(AiActions.validate(AiAction(type = "REMEMBER", text = "  "), emptySet(), today))
+    }
+
+    @Test fun thinkIsParsedButNotReply() {
+        val r = AiActions.parse("""{"think":"user is tired","reply":"Rest first.","actions":[]}""")!!
+        assertEquals("Rest first.", r.reply)
+        assertEquals("user is tired", r.think)
+    }
 }
