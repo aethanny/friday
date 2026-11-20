@@ -281,6 +281,20 @@ class DeviceTests {
         assertNull(c.memory.add("one too many", com.friday.app.data.db.MemorySource.USER))
     }
 
+    @Test fun twoRememberActionsAddTwoMemoriesAndShowBoth() = runBlocking<Unit> {
+        val reply = com.friday.app.ai.AiReply(
+            reply = "Got it.",
+            actions = listOf(
+                com.friday.app.ai.AiAction(type = "REMEMBER", text = "Gym after 7 PM"),
+                com.friday.app.ai.AiAction(type = "REMEMBER", text = "Prefers short messages"),
+            ),
+        )
+        val res = c.ai.apply(reply, emptyList(), ctx, com.friday.app.ai.Lang.EN)
+        assertEquals(setOf("Gym after 7 PM", "Prefers short messages"), c.memory.all().map { it.text }.toSet())
+        assertTrue(res.text.contains("Remembered: Gym after 7 PM"))
+        assertTrue(res.text.contains("Remembered: Prefers short messages"))
+    }
+
     private fun alarm(cueId: Long): PendingIntent? = PendingIntent.getBroadcast(
         ctx, cueId.toInt(),
         Intent(ctx, ReminderReceiver::class.java).setAction(ReminderReceiver.ACTION_FIRE).putExtra(Extras.CUE_ID, cueId),

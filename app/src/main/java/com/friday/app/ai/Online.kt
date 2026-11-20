@@ -264,14 +264,14 @@ class OnlineAssistant(
         return apply(reply, open, r, lang)
     }
 
-    private suspend fun apply(reply: AiReply, open: List<TaskWithDetails>, r: Context, lang: Lang): EngineResult {
+    internal suspend fun apply(reply: AiReply, open: List<TaskWithDetails>, r: Context, lang: Lang): EngineResult {
         val byId = open.associateBy { it.task.id }
         val today = now().toLocalDate()
         val undos = mutableListOf<Undo>()
         var proposal: Proposal? = null
         var focus: Action.Focus? = null
         var created: Long? = null
-        var remembered: String? = null
+        val remembered = mutableListOf<String>()
         for (raw in reply.actions.take(5)) {
             when (val a = AiActions.validate(raw, byId.keys, today)) {
                 is Action.Create -> {
@@ -284,12 +284,12 @@ class OnlineAssistant(
                 is Action.Complete -> if (proposal == null) proposal = Proposal(ProposalKind.COMPLETE_TASK, a.taskId, r.getString(R.string.mark_done_label, byId.getValue(a.taskId).task.title))
                 is Action.Snooze -> if (proposal == null) proposal = Proposal(ProposalKind.SNOOZE_REMINDER, a.taskId, r.getString(R.string.snooze_label, byId.getValue(a.taskId).task.title, Fmt.duration(r, a.minutes)), minutes = a.minutes)
                 is Action.Focus -> focus = a
-                is Action.Remember -> memory.add(a.text, MemorySource.CHAT)?.let { undos += Undo.DeleteMemory(it); remembered = r.getString(R.string.remembered_line, a.text) }
+                is Action.Remember -> memory.add(a.text, MemorySource.CHAT)?.let { undos += Undo.DeleteMemory(it); remembered += r.getString(R.string.remembered_line, a.text) }
                 null -> Unit
             }
         }
         return EngineResult(
-            text = reply.reply.trim().ifBlank { r.getString(R.string.ai_done) }.take(1500) + remembered?.let { "\n\n$it" }.orEmpty(),
+            text = reply.reply.trim().ifBlank { r.getString(R.string.ai_done) }.take(1500) + remembered.joinToString("") { "\n\n$it" },
             undo = when (undos.size) { 0 -> null; 1 -> undos[0]; else -> Undo.Many(undos) },
             proposal = proposal,
             taskId = created,
@@ -377,7 +377,7 @@ class OnlineAssistant(
         }.ifBlank { "(none)" }
         val focus = db.focus().active()?.let { "\nThe user is in a focus session on \"${it.taskTitle}\" with ${FocusMath.remainingMs(it, System.currentTimeMillis()) / 60_000} min left." }.orEmpty()
         val memories = memory.all().joinToString("\n") { "- ${it.text}" }.ifBlank { "(nothing yet)" }
-        val postponed = open.map { it.task }.filter { it.postponeCount >= 2 }.take(10).joinToString("\n") { "- ${it.title} (moved ${it.postponeCount} times)" }
+        val postponed = open.map { it.task }.filter { it.postponeCount >= 2 }.sortedByDescending { it.postponeCount }.take(10).joinToString("\n") { "- ${it.title} (moved ${it.postponeCount} times)" }
         val lastFocus = db.focus().latest()?.takeIf { (it.endedAt ?: it.startedAt) > System.currentTimeMillis() - 24 * 3_600_000L }
             ?.let { "\nLast focus: \"${it.taskTitle}\" — ${it.outcome?.name ?: "in progress"}" }.orEmpty()
         val name = settings.current().name.takeIf { it.isNotBlank() }?.let { " The user's name is $it." }.orEmpty()
