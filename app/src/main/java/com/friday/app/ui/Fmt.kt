@@ -78,13 +78,17 @@ object Fmt {
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
     }
 
+    fun placeTypeLabel(ctx: Context, type: String): String = ctx.getString(
+        when (type) { "PHARMACY" -> R.string.place_type_pharmacy; "SUPERMARKET" -> R.string.place_type_supermarket; else -> R.string.place_type_store },
+    )
+
     fun cueWhen(ctx: Context, c: CueEntity, placeName: String? = null): String = when (c.anchor) {
         CueAnchor.START -> if (c.offsetMin == 0) ctx.getString(R.string.cue_at_start) else ctx.getString(R.string.cue_before_start, duration(ctx, c.offsetMin))
         CueAnchor.END -> if (c.offsetMin == 0) ctx.getString(R.string.cue_at_end) else ctx.getString(R.string.cue_before_end, duration(ctx, c.offsetMin))
         CueAnchor.DAY -> if (c.offsetMin < 0) ctx.getString(R.string.cue_day_before, minuteOfDay(ctx, c.offsetMin + 24 * 60))
             else ctx.getString(R.string.cue_on_day, minuteOfDay(ctx, c.offsetMin))
         CueAnchor.LEAVE -> ctx.getString(R.string.cue_leave, placeName ?: "")
-        CueAnchor.ARRIVE -> ctx.getString(R.string.cue_arrive, placeName ?: "")
+        CueAnchor.ARRIVE -> if (c.placeType != null) ctx.getString(R.string.cue_at_type, placeTypeLabel(ctx, c.placeType)) else ctx.getString(R.string.cue_arrive, placeName ?: "")
     }
 
     /** Text shown in the notification when a reminder fires. */

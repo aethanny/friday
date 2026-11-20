@@ -58,6 +58,12 @@ class CommandParserTest {
         assertFalse(p.needsTime)
     }
 
+    @Test fun errandEnglish() { val p = parser.parse("remind me to buy batteries next time I'm at a store"); assertEquals("Buy batteries", p.title); assertEquals("STORE", p.placeType); assertEquals(CommandKind.REMINDER, p.kind); assertFalse(p.needsTime) }
+    @Test fun errandPharmacy() { assertEquals("PHARMACY", parser.parse("buy panadol when I'm at a pharmacy").placeType) }
+    @Test fun errandMalay() { val p = parser.parse("ingatkan beli susu bila aku pergi pasar raya"); assertEquals("SUPERMARKET", p.placeType); assertEquals("Beli susu", p.title) }
+    @Test fun errandAtTheNext() { assertEquals("PHARMACY", parser.parse("remind me to get vitamins at the next chemist").placeType) }
+    @Test fun savedPlaceStillWins() { val p = parser.parse("remind me to call mum when I get home"); assertNull(p.placeType); assertEquals(PlaceEvent.ARRIVE, p.placeEvent) }
+
     @Test fun arriveAtCampus() {
         val p = parser.parse("Remind me when I get to campus to return the book")
         assertEquals(PlaceEvent.ARRIVE, p.placeEvent)

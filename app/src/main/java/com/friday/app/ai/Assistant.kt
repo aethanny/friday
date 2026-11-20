@@ -114,6 +114,7 @@ class AssistantEngine(
             }
             CommandKind.REMINDER, CommandKind.TASK -> when {
                 p.title.isBlank() -> EngineResult(r.getString(R.string.ask_what), lang = lang)
+                p.placeType != null -> errandReminder(p)
                 p.placeEvent != null -> placeReminder(p, text)
                 p.needsTime -> {
                     pending = p
@@ -169,6 +170,16 @@ class AssistantEngine(
             detail.isNotEmpty() -> r.getString(R.string.task_added_when, t.title, detail)
             else -> r.getString(R.string.task_added, t.title)
         }
+        return EngineResult(msg, undo = Undo.DeleteTask(id), taskId = id, lang = p.lang)
+    }
+
+    /** "Next time I'm at a pharmacy": no saved place, matched later by place type. */
+    private suspend fun errandReminder(p: Parsed): EngineResult {
+        val r = ctx.inLang(p.lang)
+        val id = tasks.save(TaskEntity(title = p.title, important = p.important))
+        tasks.addPlaceTypeCue(id, p.placeType!!)
+        // TODO(Task 9): only append when AppSettings.placeAwareness is off.
+        val msg = r.getString(R.string.errand_set, p.title, Fmt.placeTypeLabel(r, p.placeType)) + "\n\n" + r.getString(R.string.errand_needs_places)
         return EngineResult(msg, undo = Undo.DeleteTask(id), taskId = id, lang = p.lang)
     }
 

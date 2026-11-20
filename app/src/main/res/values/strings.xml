@@ -542,6 +542,12 @@
     <string name="place_message_hint">e.g. Bring your charger</string>
     <string name="places_accuracy">Turn on Google Location Accuracy</string>
     <string name="places_accuracy_footer">Your phone’s location service can’t watch places right now. Place reminders work again once Location Accuracy is on.</string>
+    <string name="cue_at_type">Next time you’re at a %1$s</string>
+    <string name="place_type_store">store</string>
+    <string name="place_type_pharmacy">pharmacy</string>
+    <string name="place_type_supermarket">supermarket</string>
+    <string name="errand_set">Okay. I’ll remind you to %1$s next time you’re at a %2$s.</string>
+    <string name="errand_needs_places">Turn on place awareness in Settings › Places so this can work.</string>
     <string name="places_accuracy_needed">Heads-up: place reminders need Google Location Accuracy. Turn it on in Settings › Places.</string>
     <string name="line_time_up">Your focus session is done. How did it go?</string>
     <string name="battery_title">Let reminders through battery saving</string>

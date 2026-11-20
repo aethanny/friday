@@ -516,6 +516,12 @@
     <string name="place_message_hint">cth. Bawa pengecas anda</string>
     <string name="places_accuracy">Hidupkan Ketepatan Lokasi Google</string>
     <string name="places_accuracy_footer">Perkhidmatan lokasi telefon anda tidak dapat memantau tempat sekarang. Peringatan tempat berfungsi semula setelah Ketepatan Lokasi dihidupkan.</string>
+    <string name="cue_at_type">Bila anda di %1$s nanti</string>
+    <string name="place_type_store">kedai</string>
+    <string name="place_type_pharmacy">farmasi</string>
+    <string name="place_type_supermarket">pasar raya</string>
+    <string name="errand_set">Baik. Saya akan ingatkan anda untuk %1$s bila anda di %2$s nanti.</string>
+    <string name="errand_needs_places">Hidupkan kesedaran tempat dalam Tetapan › Tempat supaya ini berfungsi.</string>
     <string name="places_accuracy_needed">Perhatian: peringatan tempat perlukan Ketepatan Lokasi Google. Hidupkan dalam Tetapan › Tempat.</string>
     <string name="line_time_up">Sesi fokus anda sudah tamat. Bagaimana tadi?</string>
     <string name="battery_title">Benarkan peringatan melepasi penjimatan bateri</string>

@@ -104,7 +104,7 @@ class Notifier(private val ctx: Context) {
     fun isPrimary(t: TaskEntity, c: CueEntity) =
         c.kind == CueKind.DAY || c.kind == CueKind.END || (c.kind == CueKind.START && t.durationMin == null) ||
             // "Remind me to bring my charger when I leave home": the place reminder is the whole task.
-            (c.placeId != null && t.dueDate == null)
+            ((c.placeId != null || c.placeType != null) && t.dueDate == null)
 
     /** Other FRIDAY reminders on screen, newest first (the summary and this cue's own notification excluded). */
     private fun otherReminders(cueId: Long) = nm.activeNotifications

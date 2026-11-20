@@ -245,6 +245,14 @@ class DeviceTests {
         assertNotNull(alarm(cue))
     }
 
+    @Test fun errandCueSetsNoAlarmAndSurvivesResync() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Buy panadol"))
+        val cue = c.tasks.addPlaceTypeCue(id, "PHARMACY")
+        c.scheduler.syncAll(false)
+        assertNull(alarm(cue))
+        assertEquals("PHARMACY", c.db.tasks().getCue(cue)!!.placeType)
+    }
+
     @Test fun completingRepeatingTaskResetsPostpones() = runBlocking<Unit> {
         val id = c.tasks.save(TaskEntity(title = "Water plants", dueDate = today, repeat = Repeat.DAILY))
         c.tasks.postpone(id, 1); c.tasks.postpone(id, 1)

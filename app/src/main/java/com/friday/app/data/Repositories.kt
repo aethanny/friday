@@ -203,6 +203,12 @@ class TaskRepository(
         scheduler.syncTask(taskId)
     }
 
+    suspend fun addPlaceTypeCue(taskId: Long, type: String): Long {
+        val id = dao.insertCue(CueEntity(taskId = taskId, kind = CueKind.CUSTOM, anchor = CueAnchor.ARRIVE, placeId = null, placeType = type))
+        scheduler.syncTask(taskId)
+        return id
+    }
+
     suspend fun addPlaceCue(taskId: Long, placeId: Long, leave: Boolean, message: String = ""): Long {
         val id = dao.insertCue(CueEntity(taskId = taskId, kind = CueKind.CUSTOM, anchor = if (leave) CueAnchor.LEAVE else CueAnchor.ARRIVE, placeId = placeId, message = message))
         scheduler.syncTask(taskId)

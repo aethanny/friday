@@ -25,9 +25,11 @@ data class Parsed(
     val place: String? = null,
     val placeEvent: PlaceEvent? = null,
     val lang: Lang = Lang.EN,
+    /** "STORE", "PHARMACY" or "SUPERMARKET" for "next time I'm at a …" errands; no saved place involved. */
+    val placeType: String? = null,
 ) {
     /** "Remind me…" without a clock time: FRIDAY has to ask when. */
-    val needsTime: Boolean get() = kind == CommandKind.REMINDER && time == null && placeEvent == null
+    val needsTime: Boolean get() = kind == CommandKind.REMINDER && time == null && placeEvent == null && placeType == null
 }
 
 /**
@@ -61,6 +63,8 @@ class CommandParser(private val clock: () -> LocalDateTime = LocalDateTime::now)
         val explicitReminder = take(REMIND) != null
         val important = take(IMPORTANT) != null
 
+        // Errands first: "when I'm at a store" would otherwise be read as a saved place called "a".
+        val placeType = take(ERRAND)?.let { errandType(it.groupValues.last()) }
         var place: String? = null
         var placeEvent: PlaceEvent? = null
         take(LEAVE)?.let { placeEvent = PlaceEvent.LEAVE; place = normalisePlace(it.groupValues.last()) }
@@ -132,11 +136,11 @@ class CommandParser(private val clock: () -> LocalDateTime = LocalDateTime::now)
 
         val title = cleanTitle(s)
         val kind = when {
-            explicitReminder || placeEvent != null -> CommandKind.REMINDER
+            explicitReminder || placeEvent != null || placeType != null -> CommandKind.REMINDER
             time != null || date != null || repeat != Repeat.NONE -> CommandKind.TASK
             else -> CommandKind.UNKNOWN
         }
-        return Parsed(kind, title, date, time, duration, repeat, repeatDays, important, place, placeEvent, lang)
+        return Parsed(kind, title, date, time, duration, repeat, repeatDays, important, place, placeEvent, lang, placeType)
     }
 
     private fun takeDate(take: (Regex) -> MatchResult?, today: LocalDate): LocalDate? {
@@ -235,6 +239,12 @@ class CommandParser(private val clock: () -> LocalDateTime = LocalDateTime::now)
         return if (d.isBefore(today)) d.plusYears(1) else d
     }
 
+    private fun errandType(w: String) = when (w.lowercase()) {
+        "store", "shop", "kedai" -> "STORE"
+        "pharmacy", "chemist", "farmasi" -> "PHARMACY"
+        else -> "SUPERMARKET"
+    }
+
     private fun normalisePlace(p: String): String = when (p.lowercase().trim()) {
         "home", "house", "rumah" -> "home"
         "work", "office", "pejabat", "tempat kerja", "kerja" -> "work"
@@ -254,6 +264,7 @@ class CommandParser(private val clock: () -> LocalDateTime = LocalDateTime::now)
         val REMIND = Regex("${B}(remind me|remind|reminder|don'?t let me forget|don'?t forget|ingatkan saya|ingatkan aku|ingatkan|jangan lupa)$E(\\s+(to|that|about|untuk|supaya|nak|yang))?$E", I)
         val IMPORTANT = Regex("$B(important|urgent|penting|segera)$E!?", I)
         val LEAVE = Regex("$B(when i leave|when i get out of|when i exit|when leaving|bila (?:saya |aku )?(?:keluar|tinggalkan)(?: dari)?|masa (?:saya |aku )?keluar(?: dari)?)\\s+(?:the |my )?(home|house|rumah|work|office|pejabat|campus|kampus|[\\p{L}]+)$E", I)
+        val ERRAND = Regex("$B(?:next time i(?:'m| am) at|when i(?:'m| am) at|when i go to|when i get to|at the next|bila (?:saya |aku )?(?:pergi|sampai|ke)(?: ke)?|nanti kat)\\s+(?:an? |the |any |sebuah )?(store|shop|kedai|pharmacy|chemist|farmasi|supermarket|grocery store|grocery|pasar raya)$E", I)
         val ARRIVE = Regex("$B(when i get to|when i get|when i arrive at|when i arrive|when i reach|when i'm at|bila (?:saya |aku )?(?:sampai|tiba|balik)(?: ke| di)?|masa (?:saya |aku )?sampai(?: ke| di)?)\\s+(?:the |my )?(home|house|rumah|work|office|pejabat|campus|kampus|[\\p{L}]+)$E", I)
         val EVERY_WEEKDAY = Regex("$B(every weekday|on weekdays|weekdays|setiap hari bekerja|hari bekerja|hari kerja)$E", I)
         val DAILY = Regex("$B(every ?day|everyday|daily|each day|setiap hari|tiap hari|tiap-tiap hari|every(?= (?:morning|afternoon|evening|night))|setiap(?= (?:pagi|petang|malam)))$E", I)
