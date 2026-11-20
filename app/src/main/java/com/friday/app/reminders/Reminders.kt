@@ -72,6 +72,8 @@ class ReminderScheduler(private val ctx: Context, private val db: FridayDatabase
         if (d.cues.any { it.placeId != null }) places.registerAll()
     }
 
+    suspend fun syncPlaces() = places.registerAll()
+
     /** Re-arms every alarm. After a reboot or clock change, reminders missed in the last hour fire right away. */
     suspend fun syncAll(fireMissed: Boolean, onMissed: suspend (Long) -> Unit = {}) {
         db.tasks().openTasks().forEach { sync(it, fireMissed, onMissed) }
@@ -82,7 +84,11 @@ class ReminderScheduler(private val ctx: Context, private val db: FridayDatabase
         val now = System.currentTimeMillis()
         for (cue in d.cues) {
             val trigger = Schedule.trigger(d.task, cue)
-            if (trigger == null) { cancel(cue.id); continue } // place reminders are handled by geofences
+            if (trigger == null) { // place reminders are handled by geofences; only a pending snooze needs an alarm
+                val snooze = cue.snoozedUntil
+                if (snooze != null && snooze > now) set(cue.id, snooze) else cancel(cue.id)
+                continue
+            }
             val key = Schedule.key(trigger)
             val at = cue.snoozedUntil ?: Schedule.instant(trigger)
             when {

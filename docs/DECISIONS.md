@@ -78,3 +78,10 @@ CONTEXT.md is the original brief; where this file differs, this file wins.
   coroutines/StateFlow, OkHttp + kotlinx.serialization. Hand-written DI container instead of Hilt;
   AlarmManager instead of WorkManager.
 - AGP 9.5.1, Kotlin 2.4.21, Gradle 9.9.2, compileSdk 37.1, targetSdk 36, minSdk 26.
+
+## v1.1 fixes
+- B1: a snoozed place reminder keeps its snooze alarm when alarms are re-synced (it used to be cancelled on every app start).
+- B2: monthly repeats keep their anchor day (Jan 31 -> Feb 28 -> Mar 31); the anchor is stored in `repeatDays` (0 = old tasks, use the due date's day).
+- B3: completing a repeating task resets its postpone count, so one old postponement no longer marks every future occurrence as postponed.
+- B4: the AI action type is trimmed once before every check, so " CREATE_REMINDER" without a time is rejected.
+- B5: deleting a task with a place reminder (including undoing a creation) unregisters its geofence right away.

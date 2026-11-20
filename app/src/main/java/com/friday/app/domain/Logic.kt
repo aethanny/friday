@@ -58,7 +58,11 @@ object Schedule {
         Repeat.WEEKDAYS -> generateSequence(d.plusDays(1)) { it.plusDays(1) }.first { it.dayOfWeek.value <= 5 }
         Repeat.WEEKLY -> if (days == 0) d.plusWeeks(1)
             else generateSequence(d.plusDays(1)) { it.plusDays(1) }.first { days and dayBit(it.dayOfWeek) != 0 }
-        Repeat.MONTHLY -> d.plusMonths(1)
+        Repeat.MONTHLY -> {
+            val m = d.plusMonths(1)
+            val anchor = if (days in 1..31) days else d.dayOfMonth // days = anchor day-of-month; 0 on old tasks
+            m.withDayOfMonth(minOf(anchor, m.lengthOfMonth()))
+        }
     }
 
     fun dayBit(day: DayOfWeek): Int = 1 shl (day.value - 1)

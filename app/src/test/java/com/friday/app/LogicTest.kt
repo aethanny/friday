@@ -136,4 +136,11 @@ class LogicTest {
         assertFalse(FocusMath.silencesOthers(s, start + 26 * 60_000L))
         assertFalse(FocusMath.silencesOthers(null, start))
     }
+
+    @Test fun monthlyKeepsAnchorDay() {
+        val t = task(due = LocalDate.of(2027, 1, 31), repeat = Repeat.MONTHLY, days = 31)
+        val feb = Schedule.nextOccurrence(t, LocalDate.of(2027, 1, 31))
+        assertEquals(LocalDate.of(2027, 2, 28), feb)
+        assertEquals(LocalDate.of(2027, 3, 31), Schedule.nextOccurrence(t.copy(dueDate = feb), feb!!))
+    }
 }

@@ -92,4 +92,8 @@ class OnlineAiTest {
             server.shutdown()
         }
     }
+
+    @Test fun reminderWithoutTimeRejectedEvenWithSpaces() {
+        assertNull(AiActions.validate(AiAction(type = " CREATE_REMINDER ", title = "x"), emptySet(), java.time.LocalDate.of(2026, 11, 20)))
+    }
 }

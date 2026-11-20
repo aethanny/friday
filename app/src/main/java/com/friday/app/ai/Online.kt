@@ -172,12 +172,13 @@ object AiActions {
 
     fun validate(a: AiAction, openIds: Set<Long>, today: LocalDate): Action? {
         val id = a.taskId?.takeIf { it in openIds }
-        return when (a.type.trim().uppercase(Locale.ROOT)) {
+        val type = a.type.trim().uppercase(Locale.ROOT)
+        return when (type) {
             "CREATE_TASK", "CREATE_REMINDER" -> {
                 val title = clean(a.title, 200) ?: return null
                 val time = time(a.time)
                 val date = date(a.date, today) ?: if (time != null) today else null
-                if (a.type.uppercase(Locale.ROOT) == "CREATE_REMINDER" && time == null) return null
+                if (type == "CREATE_REMINDER" && time == null) return null
                 Action.Create(
                     title, date, time,
                     a.durationMin?.takeIf { it in 1..720 },

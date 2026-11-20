@@ -217,6 +217,30 @@ class DeviceTests {
         assertEquals(DarkColors, seen)
     }
 
+    @Test fun snoozedPlaceReminderSurvivesResync() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Buy milk"))
+        val place = c.db.places().insert(com.friday.app.data.db.PlaceEntity(name = "Shop", lat = 1.0, lng = 1.0))
+        val cue = c.tasks.addPlaceCue(id, place, leave = false)
+        c.reminders.snooze(cue, 10)
+        c.scheduler.cancel(cue) // simulate the alarm being gone, then resync must re-arm it
+        c.db.tasks().updateCue(c.db.tasks().getCue(cue)!!.copy(snoozedUntil = System.currentTimeMillis() + 10 * 60_000))
+        c.scheduler.syncAll(false)
+        assertNotNull(alarm(cue))
+    }
+
+    @Test fun completingRepeatingTaskResetsPostpones() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Water plants", dueDate = today, repeat = Repeat.DAILY))
+        c.tasks.postpone(id, 1); c.tasks.postpone(id, 1)
+        assertEquals(2, c.tasks.get(id)!!.postponeCount)
+        c.tasks.complete(id)
+        assertEquals(0, c.tasks.get(id)!!.postponeCount)
+    }
+
+    @Test fun monthlySaveStoresAnchorDay() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Rent", dueDate = LocalDate.of(2027, 1, 31), repeat = Repeat.MONTHLY))
+        assertEquals(31, c.tasks.get(id)!!.repeatDays)
+    }
+
     private fun alarm(cueId: Long): PendingIntent? = PendingIntent.getBroadcast(
         ctx, cueId.toInt(),
         Intent(ctx, ReminderReceiver::class.java).setAction(ReminderReceiver.ACTION_FIRE).putExtra(Extras.CUE_ID, cueId),

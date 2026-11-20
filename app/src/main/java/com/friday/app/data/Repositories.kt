@@ -39,6 +39,7 @@ class TaskRepository(
         var t = task.copy(title = task.title.trim().take(200).ifBlank { "Untitled" }, category = task.category?.trim()?.ifBlank { null })
         if (t.repeat != Repeat.NONE && t.dueDate == null) t = t.copy(dueDate = today())
         if (t.dueDate == null) t = t.copy(dueTime = null)
+        if (t.repeat == Repeat.MONTHLY && t.repeatDays == 0) t = t.copy(repeatDays = t.dueDate!!.dayOfMonth)
         val old = if (t.id != 0L) dao.get(t.id) else null
         val id = if (old == null) {
             dao.insert(t.copy(id = 0))
@@ -82,7 +83,7 @@ class TaskRepository(
         var historyId: Long? = null
         if (next != null) {
             historyId = dao.insert(t.copy(id = 0, completedAt = now, repeat = Repeat.NONE, repeatDays = 0, autoPrep = false, lastActiveAt = null))
-            dao.update(t.copy(dueDate = next, lastActiveAt = now))
+            dao.update(t.copy(dueDate = next, lastActiveAt = now, postponeCount = 0))
             dao.resetSubtasks(id)
             dao.resetCueState(id)
         } else {
@@ -103,6 +104,7 @@ class TaskRepository(
         val d = dao.getDetails(id) ?: return null
         d.cues.forEach { scheduler.cancel(it.id) }
         dao.delete(d.task)
+        if (d.cues.any { it.placeId != null }) scheduler.syncPlaces()
         return TaskSnapshot(d)
     }
 
