@@ -99,7 +99,7 @@ class ReminderScheduler(private val ctx: Context, private val db: FridayDatabase
                 cue.snoozedUntil == null && cue.firedKey == key -> cancel(cue.id)
                 at > now -> set(cue.id, at)
                 fireMissed && now - at < MISSED_WINDOW_MS -> onMissed(cue.id)
-                else -> { cancel(cue.id); db.tasks().updateCue(cue.copy(firedKey = key, snoozedUntil = null)) }
+                else -> { cancel(cue.id); db.tasks().updateCue(cue.copy(firedKey = key, snoozedUntil = null, held = false)) }
             }
         }
     }
@@ -151,6 +151,8 @@ class ReminderEngine(
     /** Releases reminders held back during focus. Each is re-checked, so a newer session can hold it again. */
     suspend fun releaseHeld(now: Long = System.currentTimeMillis()) {
         for (cue in dao.heldCues()) {
+            // Defensive: a hold always sets snoozedUntil; without it the cue was rescheduled since, so just drop the flag.
+            if (cue.snoozedUntil == null) { dao.updateCue(cue.copy(held = false)); continue }
             // snoozedUntil = now (not null): a held snooze shares firedKey with the first alert and would be dropped as a duplicate.
             dao.updateCue(cue.copy(held = false, snoozedUntil = now))
             scheduler.cancel(cue.id)
@@ -161,7 +163,9 @@ class ReminderEngine(
     /** Focusing on the task now, or a focus session on it ended in the last 30 min. Not lastActiveAt: merely opening a task touches it. */
     private suspend fun startedAlready(task: TaskEntity, now: Long): Boolean {
         val s = db.focus().latestFor(task.id) ?: return false
-        val ended = s.endedAt ?: return true
+        if (s.endedAt == null && FocusMath.silencesOthers(s, now)) return true // running now
+        // Sessions stay open after time-up until check-in, so an open one "ended" when its time ran out or it was paused.
+        val ended = s.endedAt ?: s.pausedAt ?: FocusMath.endsAt(s) ?: return false
         return abs(now - ended) <= STARTED_WINDOW_MS
     }
 

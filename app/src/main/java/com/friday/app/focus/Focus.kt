@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import com.friday.app.container
 import com.friday.app.data.db.FocusOutcome
 import com.friday.app.data.db.FocusSessionEntity
@@ -87,7 +88,7 @@ class FocusController(
         e.taskId?.let { db.tasks().touch(it) }
         stopSideEffects()
         notifier.cancelFocusDone()
-        onEnded()
+        releaseHeld()
         return e
     }
 
@@ -108,7 +109,7 @@ class FocusController(
         if (FocusMath.remainingMs(s, now()) > 5_000) { armEnd(s); return }
         stopSideEffects()
         notifier.focusDone(s)
-        onEnded()
+        releaseHeld()
     }
 
     suspend fun restoreAfterRestart() {
@@ -119,6 +120,11 @@ class FocusController(
             notifier.focusOngoing(s)
             if (s.shield) ShieldService.start(ctx) // allowed after boot/app update; silently skipped otherwise
         } else timeUp(s.id)
+    }
+
+    /** A reminder failure must never stop focus from ending. */
+    private suspend fun releaseHeld() {
+        runCatching { onEnded() }.onFailure { Log.w("FocusController", "releasing held reminders failed", it) }
     }
 
     private fun stopSideEffects() {

@@ -79,7 +79,7 @@ interface TaskDao {
     @Query("SELECT * FROM cues")
     suspend fun allCues(): List<CueEntity>
 
-    @Query("UPDATE cues SET firedKey = NULL, ackKey = NULL, snoozedUntil = NULL, firedAt = NULL WHERE taskId = :taskId")
+    @Query("UPDATE cues SET firedKey = NULL, ackKey = NULL, snoozedUntil = NULL, firedAt = NULL, held = 0 WHERE taskId = :taskId")
     suspend fun resetCueState(taskId: Long)
 
     @Query("SELECT * FROM cues WHERE firedAt >= :since AND taskId != :exceptTaskId ORDER BY firedAt")

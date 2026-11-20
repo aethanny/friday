@@ -425,6 +425,46 @@ class DeviceTests {
         assertTrue(showing(NotificationIds.reminder(prep.id)))
     }
 
+    @Test fun prepPostedAfterUncheckedFocusSession() = runBlocking<Unit> {
+        assumeTrue("notifications off", c.notifier.enabled())
+        val now = System.currentTimeMillis()
+        val a = timedTask("[test] A")
+        val prep = cueOf(a, CueKind.PREP)
+        focusOn(a, now - 2 * 60 * 60_000) // time ran out 95 min ago, never checked in: still open
+        c.reminders.fire(prep.id, now)
+        repeat(50) { if (!showing(NotificationIds.reminder(prep.id))) delay(100) }
+        assertTrue(showing(NotificationIds.reminder(prep.id)))
+    }
+
+    @Test fun prepPostedAfterFocusPausedLongAgo() = runBlocking<Unit> {
+        assumeTrue("notifications off", c.notifier.enabled())
+        val now = System.currentTimeMillis()
+        val a = timedTask("[test] A")
+        val prep = cueOf(a, CueKind.PREP)
+        c.db.focus().insert(
+            FocusSessionEntity(taskId = a, taskTitle = "[test] focus", plannedMin = 25, startedAt = now - 2 * 60 * 60_000 - 5 * 60_000, pausedAt = now - 2 * 60 * 60_000),
+        )
+        c.reminders.fire(prep.id, now)
+        repeat(50) { if (!showing(NotificationIds.reminder(prep.id))) delay(100) }
+        assertTrue(showing(NotificationIds.reminder(prep.id)))
+    }
+
+    @Test fun postponedHeldReminderIsNotFiredEarly() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val a = timedTask("[test] A"); val bId = timedTask("[test] B"); val b = cueOf(bId, CueKind.START)
+        val session = focusOn(a, now)
+        c.reminders.fire(b.id, now)
+        assertTrue(c.db.tasks().getCue(b.id)!!.held)
+        c.tasks.postpone(bId)
+        assertFalse(c.db.tasks().getCue(b.id)!!.held)
+        endFocus(session, now + 60_000)
+        c.reminders.releaseHeld(now + 60_000)
+        val after = c.db.tasks().getCue(b.id)!!
+        assertNull(after.firedKey)
+        assertFalse(showing(NotificationIds.reminder(b.id)))
+        assertNotNull(alarm(b.id)) // still armed for the new date
+    }
+
     @Test fun burstOfRemindersIsBundled() = runBlocking<Unit> {
         assumeTrue("notifications off", c.notifier.enabled())
         val x = cueOf(timedTask("[test] X"), CueKind.START)

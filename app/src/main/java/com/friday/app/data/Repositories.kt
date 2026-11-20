@@ -76,11 +76,11 @@ class TaskRepository(
                 want == null && have != null -> { scheduler.cancel(have.id); dao.deleteCue(have) }
                 want != null && have == null -> dao.insertCue(want)
                 want != null && have != null && (have.offsetMin != want.offsetMin || have.anchor != want.anchor || scheduleChanged) ->
-                    dao.updateCue(have.copy(anchor = want.anchor, offsetMin = want.offsetMin, firedKey = null, ackKey = null, snoozedUntil = null))
+                    dao.updateCue(have.copy(anchor = want.anchor, offsetMin = want.offsetMin, firedKey = null, ackKey = null, snoozedUntil = null, held = false))
             }
         }
         if (scheduleChanged) existing.filter { it.kind == CueKind.CUSTOM }.forEach {
-            dao.updateCue(it.copy(firedKey = null, ackKey = null, snoozedUntil = null))
+            dao.updateCue(it.copy(firedKey = null, ackKey = null, snoozedUntil = null, held = false))
         }
     }
 
@@ -174,7 +174,7 @@ class TaskRepository(
     }
 
     suspend fun updateCue(cue: CueEntity) {
-        dao.updateCue(cue.copy(message = cue.message.trim().take(300), firedKey = null, ackKey = null, snoozedUntil = null))
+        dao.updateCue(cue.copy(message = cue.message.trim().take(300), firedKey = null, ackKey = null, snoozedUntil = null, held = false))
         scheduler.syncTask(cue.taskId)
     }
 
@@ -195,7 +195,7 @@ class TaskRepository(
         dao.lastWithSameTitle(title, taskId)?.cues?.filter { it.kind == CueKind.CUSTOM }.orEmpty()
 
     suspend fun copyCues(taskId: Long, cues: List<CueEntity>) {
-        dao.insertCues(cues.map { it.copy(id = 0, taskId = taskId, firedKey = null, ackKey = null, snoozedUntil = null, firedAt = null) })
+        dao.insertCues(cues.map { it.copy(id = 0, taskId = taskId, firedKey = null, ackKey = null, snoozedUntil = null, held = false, firedAt = null) })
         scheduler.syncTask(taskId)
     }
 
