@@ -109,7 +109,11 @@ class FocusController(
     suspend fun restoreAfterRestart() {
         val s = dao.active() ?: return
         if (s.pausedAt != null) { notifier.focusOngoing(s); return }
-        if (FocusMath.remainingMs(s, now()) > 0) { armEnd(s); notifier.focusOngoing(s) } else timeUp(s.id)
+        if (FocusMath.remainingMs(s, now()) > 0) {
+            armEnd(s)
+            notifier.focusOngoing(s)
+            if (s.shield) ShieldService.start(ctx) // allowed after boot/app update; silently skipped otherwise
+        } else timeUp(s.id)
     }
 
     private fun stopSideEffects() {

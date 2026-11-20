@@ -11,6 +11,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -75,6 +76,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
@@ -690,4 +695,16 @@ fun Card(modifier: Modifier = Modifier, padding: Dp = 20.dp, content: @Composabl
             .padding(padding),
         content = content,
     )
+}
+
+/** The focus countdown ring: a track with the elapsed share drawn from 12 o'clock. */
+@Composable
+fun ProgressRing(progress: Float, color: Color, modifier: Modifier = Modifier, track: Color = Friday.colors.fill, stroke: Dp = 12.dp) {
+    Canvas(modifier) {
+        val w = stroke.toPx()
+        val topLeft = Offset(w / 2, w / 2)
+        val arc = Size(size.width - w, size.height - w)
+        drawArc(track, 0f, 360f, false, topLeft, arc, style = Stroke(w))
+        drawArc(color, -90f, 360f * progress, false, topLeft, arc, style = Stroke(w, cap = StrokeCap.Round))
+    }
 }

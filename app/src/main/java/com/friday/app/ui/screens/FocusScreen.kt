@@ -9,7 +9,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -49,11 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -89,6 +84,7 @@ import com.friday.app.ui.components.Ic
 import com.friday.app.ui.components.ListRow
 import com.friday.app.ui.components.Pill
 import com.friday.app.ui.components.PrimaryButton
+import com.friday.app.ui.components.ProgressRing
 import com.friday.app.ui.components.RowDivider
 import com.friday.app.ui.components.SecondaryButton
 import com.friday.app.ui.components.Section
@@ -332,15 +328,7 @@ private fun Running(s: FocusSessionEntity, task: TaskWithDetails?, now: Long, vm
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(s.taskTitle, style = MaterialTheme.typography.titleLarge, color = c.text, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp))
         Box(Modifier.padding(vertical = 20.dp).size(270.dp).semantics { contentDescription = ctx.getString(R.string.time_left_a11y, countdown(left)) }, contentAlignment = Alignment.Center) {
-            val track = c.fill
-            val accent = if (paused) c.textTertiary else c.accent
-            Canvas(Modifier.fillMaxSize()) {
-                val stroke = 12.dp.toPx()
-                val inset = stroke / 2
-                val arcSize = Size(size.width - stroke, size.height - stroke)
-                drawArc(track, 0f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(stroke))
-                drawArc(accent, -90f, 360f * progress, false, Offset(inset, inset), arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
-            }
+            ProgressRing(progress, if (paused) c.textTertiary else c.accent, Modifier.fillMaxSize())
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(countdown(left), style = MaterialTheme.typography.displayLarge, color = if (paused) c.textSecondary else c.text)
                 Text(

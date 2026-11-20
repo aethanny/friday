@@ -289,7 +289,14 @@
     <string name="try_5">Cuba 5 minit</string>
 
     <string name="shield_title">Masih fokus?</string>
-    <string name="shield_body">Anda sedang buat “%1$s”. Tinggal %2$d minit.</string>
+    <string name="shield_left">lagi</string>
+    <string name="shield_can_wait">%1$s boleh tunggu %2$s lagi.</string>
+    <string name="shield_can_wait_generic">Ini boleh tunggu %1$s lagi.</string>
+    <string name="shield_progress">Anda sudah luangkan %1$s untuk “%2$s”. Jom habiskan.</string>
+    <string name="shield_progress_start">Anda baru mula “%1$s”. Cuba betul-betul dulu.</string>
+    <string name="breathe_in">Tarik nafas · %1$d</string>
+    <string name="breathe_out">Hembus perlahan · %1$d</string>
+    <string name="shield_check_again">Saya akan tanya lagi dalam 5 minit.</string>
     <string name="back_to_task">Kembali ke tugasan saya</string>
     <string name="let_me_in_5">Benarkan saya 5 minit</string>
     <string name="shield_intro">Semasa sesi fokus dengan perisai dihidupkan, membuka salah satu aplikasi ini akan menunjukkan peringatan lembut untuk kembali ke tugasan. Anda sentiasa boleh memilih untuk teruskan. Ia tidak pernah mengunci anda.</string>

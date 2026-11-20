@@ -309,7 +309,14 @@
 
     <!-- Shield -->
     <string name="shield_title">Still focusing?</string>
-    <string name="shield_body">You’re working on “%1$s”. %2$d min left.</string>
+    <string name="shield_left">left</string>
+    <string name="shield_can_wait">%1$s can wait %2$s.</string>
+    <string name="shield_can_wait_generic">This can wait %1$s.</string>
+    <string name="shield_progress">You’ve already put %1$s into “%2$s”. Let’s finish strong.</string>
+    <string name="shield_progress_start">You just started “%1$s”. Give it a real go first.</string>
+    <string name="breathe_in">Breathe in · %1$d</string>
+    <string name="breathe_out">Breathe out · %1$d</string>
+    <string name="shield_check_again">I’ll check in again in 5 minutes.</string>
     <string name="back_to_task">Back to my task</string>
     <string name="let_me_in_5">Let me in for 5 minutes</string>
     <string name="shield_intro">During a focus session with the shield on, opening one of these apps shows a calm reminder to go back to your task. You can always choose to continue. It never locks you out.</string>
