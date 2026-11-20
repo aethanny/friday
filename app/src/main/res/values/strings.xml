@@ -508,6 +508,8 @@
     <string name="memory_empty_title">Nothing yet</string>
     <string name="memory_empty_body">Tell FRIDAY things like “I crash after 10 PM”.</string>
     <string name="memory_edit">Edit memory</string>
+    <string name="memory_duplicate">Already remembered.</string>
+    <string name="memory_full">FRIDAY can remember up to 100 things. Remove one first.</string>
     <string name="memory_deleted">Removed</string>
     <string name="memory_source_user">You</string>
     <string name="memory_source_chat">From chat</string>

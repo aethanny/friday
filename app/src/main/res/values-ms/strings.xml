@@ -483,6 +483,8 @@
     <string name="memory_empty_title">Belum ada apa-apa</string>
     <string name="memory_empty_body">Beritahu FRIDAY perkara seperti “Saya penat selepas 10 malam”.</string>
     <string name="memory_edit">Ubah ingatan</string>
+    <string name="memory_duplicate">Sudah diingat.</string>
+    <string name="memory_full">FRIDAY boleh ingat sehingga 100 perkara. Buang satu dahulu.</string>
     <string name="memory_deleted">Dibuang</string>
     <string name="memory_source_user">Anda</string>
     <string name="memory_source_chat">Dari sembang</string>

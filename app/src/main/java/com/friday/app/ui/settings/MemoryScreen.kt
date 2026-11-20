@@ -73,6 +73,9 @@ fun MemoryScreen(nav: NavController) {
         }
     }
 
-    if (adding) TextDialog(stringResource(R.string.memory_add_hint), "", { adding = false }) { t -> adding = false; scope.launch { repo.add(t, MemorySource.USER) } }
+    if (adding) TextDialog(stringResource(R.string.memory_add_hint), "", { adding = false }) { t -> adding = false; scope.launch {
+        val full = repo.all().size >= 100
+        if (repo.add(t, MemorySource.USER) == null && t.isNotBlank()) toaster.show(ctx.getString(if (full) R.string.memory_full else R.string.memory_duplicate))
+    } }
     editing?.let { m -> TextDialog(stringResource(R.string.memory_edit), m.text, { editing = null }) { t -> editing = null; scope.launch { repo.edit(m, t) } } }
 }
