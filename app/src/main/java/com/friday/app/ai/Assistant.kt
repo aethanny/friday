@@ -114,7 +114,7 @@ class AssistantEngine(
             }
             CommandKind.REMINDER, CommandKind.TASK -> when {
                 p.title.isBlank() -> EngineResult(r.getString(R.string.ask_what), lang = lang)
-                p.placeType != null -> errandReminder(p)
+                p.placeType != null -> savedPlaceNamed(p.placeWord)?.let { placeReminder(p.copy(placeType = null, placeEvent = PlaceEvent.ARRIVE, place = it), text) } ?: errandReminder(p)
                 p.placeEvent != null -> placeReminder(p, text)
                 p.needsTime -> {
                     pending = p
@@ -172,6 +172,10 @@ class AssistantEngine(
         }
         return EngineResult(msg, undo = Undo.DeleteTask(id), taskId = id, lang = p.lang)
     }
+
+    /** A saved place called exactly "shop" or "pharmacy" beats the generic errand. */
+    private suspend fun savedPlaceNamed(word: String?): String? =
+        word?.let { w -> db.places().all().firstOrNull { it.name.trim().equals(w, ignoreCase = true) }?.name }
 
     /** "Next time I'm at a pharmacy": no saved place, matched later by place type. */
     private suspend fun errandReminder(p: Parsed): EngineResult {

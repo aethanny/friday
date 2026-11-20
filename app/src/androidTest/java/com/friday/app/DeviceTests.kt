@@ -245,6 +245,14 @@ class DeviceTests {
         assertNotNull(alarm(cue))
     }
 
+    @Test fun savedPlaceNamedShopBeatsErrand() = runBlocking<Unit> {
+        val shop = c.db.places().insert(com.friday.app.data.db.PlaceEntity(name = "Shop", lat = 1.0, lng = 1.0))
+        val res = c.assistant.handle("remind me to buy milk when I get to the shop", Source.CHAT)
+        val cue = c.db.tasks().allCues().single { it.taskId == res.taskId }
+        assertEquals(shop, cue.placeId)
+        assertNull(cue.placeType)
+    }
+
     @Test fun errandCueSetsNoAlarmAndSurvivesResync() = runBlocking<Unit> {
         val id = c.tasks.save(TaskEntity(title = "Buy panadol"))
         val cue = c.tasks.addPlaceTypeCue(id, "PHARMACY")
