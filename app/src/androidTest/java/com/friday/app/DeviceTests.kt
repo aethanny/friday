@@ -404,23 +404,25 @@ class DeviceTests {
         assertFalse(showing(NotificationIds.reminder(start.id)))
     }
 
-    @Test fun prepSkippedWhenTaskTouched10MinAgo() = runBlocking<Unit> {
+    @Test fun prepSkippedWhenFocusOnTaskEnded10MinAgo() = runBlocking<Unit> {
         val now = System.currentTimeMillis()
         val a = timedTask("[test] A")
         val prep = cueOf(a, CueKind.PREP)
-        c.db.tasks().touch(a, now - 10 * 60_000)
+        endFocus(focusOn(a, now - 35 * 60_000), now - 10 * 60_000)
         c.reminders.fire(prep.id, now)
         assertNotNull(c.db.tasks().getCue(prep.id)!!.firedKey)
         assertFalse(showing(NotificationIds.reminder(prep.id)))
     }
 
-    @Test fun gotItDoesNotCountAsStarted() = runBlocking<Unit> {
+    @Test fun prepNotSkippedWhenTaskMerelyTouched() = runBlocking<Unit> {
+        assumeTrue("notifications off", c.notifier.enabled())
+        val now = System.currentTimeMillis()
         val a = timedTask("[test] A")
         val prep = cueOf(a, CueKind.PREP)
-        c.db.tasks().touch(a, 12_345L)
-        c.reminders.fire(prep.id)
-        c.reminders.acknowledge(prep.id)
-        assertEquals(12_345L, c.tasks.get(a)!!.lastActiveAt)
+        c.db.tasks().touch(a, now - 5 * 60_000) // e.g. opened in the editor: not "started"
+        c.reminders.fire(prep.id, now)
+        repeat(50) { if (!showing(NotificationIds.reminder(prep.id))) delay(100) }
+        assertTrue(showing(NotificationIds.reminder(prep.id)))
     }
 
     @Test fun burstOfRemindersIsBundled() = runBlocking<Unit> {

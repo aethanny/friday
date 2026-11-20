@@ -130,7 +130,7 @@ class ReminderEngine(
         val key = trigger?.let(Schedule::key) ?: now // place reminders: every arrival is its own occurrence
         if (snoozed == null && trigger != null && cue.firedKey == key) return // never fire the same occurrence twice
         val focus = db.focus().active()
-        if (trigger != null && (cue.kind == CueKind.PREP || cue.kind == CueKind.START) && startedAlready(task, focus, now)) {
+        if (trigger != null && (cue.kind == CueKind.PREP || cue.kind == CueKind.START) && startedAlready(task, now)) {
             dao.updateCue(cue.copy(firedKey = key, firedAt = now, snoozedUntil = null, ackKey = null, held = false))
             return
         }
@@ -158,8 +158,12 @@ class ReminderEngine(
         }
     }
 
-    private fun startedAlready(task: TaskEntity, focus: FocusSessionEntity?, now: Long) =
-        focus?.taskId == task.id || task.lastActiveAt?.let { abs(now - it) <= STARTED_WINDOW_MS } == true
+    /** Focusing on the task now, or a focus session on it ended in the last 30 min. Not lastActiveAt: merely opening a task touches it. */
+    private suspend fun startedAlready(task: TaskEntity, now: Long): Boolean {
+        val s = db.focus().latestFor(task.id) ?: return false
+        val ended = s.endedAt ?: return true
+        return abs(now - ended) <= STARTED_WINDOW_MS
+    }
 
     /** When a focus session on something else is running, the end of that session; null to deliver now. */
     private fun holdUntil(task: TaskEntity, focus: FocusSessionEntity?, now: Long): Long? {
@@ -195,7 +199,8 @@ class ReminderEngine(
     suspend fun acknowledge(cueId: Long) {
         val cue = dao.getCue(cueId) ?: return
         scheduler.cancelFollowUp(cueId)
-        dao.updateCue(cue.copy(ackKey = cue.firedKey)) // not a touch: "Got it" on "get ready" doesn't mean started
+        dao.updateCue(cue.copy(ackKey = cue.firedKey))
+        dao.touch(cue.taskId)
     }
 
     suspend fun snooze(cueId: Long, minutes: Int, now: Long = System.currentTimeMillis()) {

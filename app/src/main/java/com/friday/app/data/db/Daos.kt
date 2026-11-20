@@ -143,6 +143,9 @@ interface FocusDao {
     @Query("SELECT * FROM focus_sessions ORDER BY startedAt DESC LIMIT 1")
     fun observeLatest(): Flow<FocusSessionEntity?>
 
+    @Query("SELECT * FROM focus_sessions WHERE taskId = :taskId ORDER BY startedAt DESC LIMIT 1")
+    suspend fun latestFor(taskId: Long): FocusSessionEntity?
+
     @Query("SELECT * FROM focus_sessions WHERE id = :id")
     suspend fun get(id: Long): FocusSessionEntity?
 
