@@ -523,4 +523,7 @@
     <string name="places_accuracy">Turn on Google Location Accuracy</string>
     <string name="places_accuracy_footer">Your phone’s location service can’t watch places right now. Place reminders work again once Location Accuracy is on.</string>
     <string name="places_accuracy_needed">Heads-up: place reminders need Google Location Accuracy. Turn it on in Settings › Places.</string>
+    <string name="line_time_up">Your focus session is done. How did it go?</string>
+    <string name="battery_title">Let reminders through battery saving</string>
+    <string name="battery_sub">Some phones delay or block reminders to save battery. Tap to let FRIDAY run unrestricted.</string>
 </resources>

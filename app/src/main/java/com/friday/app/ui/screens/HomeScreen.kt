@@ -392,6 +392,7 @@ private fun fridayLine(ctx: Context, s: HomeState): String {
     val r = ctx.resources
     return when {
         !s.loaded -> ""
+        s.focus != null && FocusMath.remainingMs(s.focus, System.currentTimeMillis()) == 0L -> ctx.getString(R.string.line_time_up)
         s.focus != null -> ctx.getString(R.string.line_focusing, s.focus.taskTitle)
         s.overdue > 0 -> r.getQuantityString(R.plurals.line_overdue, s.overdue, s.overdue)
         s.important > 0 -> r.getQuantityString(R.plurals.line_important, s.important, s.important)

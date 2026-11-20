@@ -498,4 +498,7 @@
     <string name="places_accuracy">Hidupkan Ketepatan Lokasi Google</string>
     <string name="places_accuracy_footer">Perkhidmatan lokasi telefon anda tidak dapat memantau tempat sekarang. Peringatan tempat berfungsi semula setelah Ketepatan Lokasi dihidupkan.</string>
     <string name="places_accuracy_needed">Perhatian: peringatan tempat perlukan Ketepatan Lokasi Google. Hidupkan dalam Tetapan › Tempat.</string>
+    <string name="line_time_up">Sesi fokus anda sudah tamat. Bagaimana tadi?</string>
+    <string name="battery_title">Benarkan peringatan melepasi penjimatan bateri</string>
+    <string name="battery_sub">Sesetengah telefon melewatkan atau menyekat peringatan untuk jimat bateri. Ketik untuk benarkan FRIDAY berjalan tanpa sekatan.</string>
 </resources>

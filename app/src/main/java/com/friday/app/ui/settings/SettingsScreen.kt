@@ -1,5 +1,6 @@
 package com.friday.app.ui.settings
 
+import android.os.PowerManager
 import com.friday.app.data.SecretStore
 import androidx.compose.foundation.clickable
 import android.app.LocaleManager
@@ -160,6 +161,14 @@ fun SettingsScreen(nav: NavController) {
                 if (!notificationsOn) {
                     ListRow(stringResource(R.string.notifications_off), subtitle = stringResource(R.string.notifications_off_sub), icon = R.drawable.ic_warning, iconBackground = c.red, titleColor = c.red, onClick = {
                         ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    })
+                    RowDivider(60.dp)
+                }
+                val unrestricted = remember(resume) { ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName) }
+                if (!unrestricted) {
+                    // Some phones (Xiaomi, Oppo, Vivo, Samsung…) delay or drop reminders of battery-optimised apps.
+                    ListRow(stringResource(R.string.battery_title), subtitle = stringResource(R.string.battery_sub), icon = R.drawable.ic_bolt, iconBackground = c.amber, onClick = {
+                        ctx.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                     })
                     RowDivider(60.dp)
                 }
