@@ -140,13 +140,16 @@ class Notifier(private val ctx: Context) {
             else -> b.addAction(0, ctx.getString(R.string.got_it), receiverIntent(ReminderReceiver.ACTION_ACK, c.id, base + 1))
         }
         when (second) {
-            // MoveTo is rendered by Task 6; until then it falls back to the picker.
-            SecondAction.SnoozePicker, is SecondAction.MoveTo -> {
+            SecondAction.SnoozePicker -> {
                 val pick = Intent(ctx, SnoozeActivity::class.java)
                     .putExtra(Extras.CUE_ID, c.id)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NO_HISTORY)
                 b.addAction(0, ctx.getString(R.string.snooze_more), PendingIntent.getActivity(ctx, base + 3, pick, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
             }
+            is SecondAction.MoveTo -> b.addAction(
+                0, ctx.getString(R.string.move_to, Fmt.time(ctx, second.time)),
+                receiverIntent(ReminderReceiver.ACTION_MOVE, c.id, base + 4, second.time.hour * 60 + second.time.minute),
+            )
         }
         nm.notify(NotificationIds.reminder(c.id), b.build())
         val titles = listOf(t.title) + others.mapNotNull { it.notification.extras.getCharSequence(NotificationCompat.EXTRA_TITLE) }

@@ -230,6 +230,8 @@
     <plurals name="bundle_title">
         <item quantity="other">%d perkara sekarang</item>
     </plurals>
+    <string name="move_to">Alih ke %1$s</string>
+    <string name="habit_usual_time">Biasanya buat “%1$s” sekitar %2$s</string>
     <string name="snooze_more">Tunda…</string>
     <string name="snooze_title">Tunda sehingga</string>
     <string name="follow_up_subtext">Peringatan sekali lagi</string>

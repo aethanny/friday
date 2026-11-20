@@ -142,6 +142,19 @@ class DeviceTests {
         assertNull(alarm(start.id))
     }
 
+    @Test fun moveToChangesTimeAndRemembers() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Gym bag", dueDate = today.plusDays(1), dueTime = LocalTime.of(17, 0), repeat = Repeat.DAILY))
+        c.db.tasks().logSnooze(com.friday.app.data.db.SnoozeLogEntity(taskId = id, at = System.currentTimeMillis(), targetMin = 19 * 60))
+        val cue = c.db.tasks().cuesFor(id).first { it.kind == CueKind.START }
+        c.reminders.moveTo(cue.id, LocalTime.of(19, 0))
+        val t = c.tasks.get(id)!!
+        assertEquals(LocalTime.of(19, 0), t.dueTime)
+        assertEquals(0, t.postponeCount)
+        assertEquals(Repeat.DAILY, t.repeat)
+        assertTrue(c.memory.all().any { it.source == com.friday.app.data.db.MemorySource.HABIT && it.text.contains("Gym bag") })
+        assertTrue(c.db.tasks().snoozesFor(id, 0).isEmpty())
+    }
+
     @Test fun followUpNudgesOnlyOnce() = runBlocking<Unit> {
         val id = c.tasks.save(TaskEntity(title = "Pay bill", dueDate = today, dueTime = LocalTime.now().plusMinutes(1).withSecond(0).withNano(0)))
         val cue = c.db.tasks().cuesFor(id).first { it.kind == CueKind.START }

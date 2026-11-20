@@ -246,6 +246,8 @@
         <item quantity="one">%d thing now</item>
         <item quantity="other">%d things now</item>
     </plurals>
+    <string name="move_to">Move to %1$s</string>
+    <string name="habit_usual_time">Usually does “%1$s” around %2$s</string>
     <string name="snooze_more">Snooze…</string>
     <string name="snooze_title">Snooze until</string>
     <string name="follow_up_subtext">Reminder again</string>

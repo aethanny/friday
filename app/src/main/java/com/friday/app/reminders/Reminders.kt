@@ -9,14 +9,19 @@ import android.os.Build
 import com.friday.app.container
 import com.friday.app.data.AppSettings
 import com.friday.app.data.SettingsStore
+import com.friday.app.data.MemoryRepository
 import com.friday.app.data.TaskRepository
 import com.friday.app.data.db.CueEntity
 import com.friday.app.data.db.CueKind
 import com.friday.app.data.db.FocusSessionEntity
 import com.friday.app.data.db.FridayDatabase
+import com.friday.app.data.db.MemorySource
+import com.friday.app.data.db.Repeat
+import com.friday.app.data.db.SnoozeLogEntity
 import com.friday.app.data.db.TaskEntity
 import com.friday.app.data.db.TaskWithDetails
 import com.friday.app.domain.FocusMath
+import com.friday.app.domain.Habits
 import com.friday.app.domain.Matrix
 import com.friday.app.domain.QuietHours
 import com.friday.app.domain.Schedule
@@ -28,6 +33,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.ZoneId
 import kotlin.math.abs
 
@@ -117,6 +123,9 @@ class ReminderEngine(
     private val scheduler: ReminderScheduler,
     private val notifier: Notifier,
     private val tasks: TaskRepository,
+    private val memory: MemoryRepository,
+    /** Builds the "usually does X around T" memory text (needs Context for string and time format). */
+    private val habitText: (TaskEntity, LocalTime) -> String,
 ) {
     private val dao = db.tasks()
 
@@ -142,10 +151,17 @@ class ReminderEngine(
         val s = settings.current()
         notifier.postReminder(
             task, cue, channelFor(cue, s, now), followUp = false,
-            body = Fmt.cueMessage(ctx, task, cue), second = SecondAction.SnoozePicker, bundle = notifier.shouldBundle(cue.id),
+            body = Fmt.cueMessage(ctx, task, cue), second = secondActionFor(task, now), bundle = notifier.shouldBundle(cue.id),
         )
         dao.updateCue(cue.copy(firedKey = key, firedAt = now, snoozedUntil = null, ackKey = null, held = false))
         if (s.followUp) scheduler.setFollowUp(cue.id, followUpAt(now, s))
+    }
+
+    private suspend fun secondActionFor(task: TaskEntity, now: Long): SecondAction {
+        val due = task.dueTime
+        if (task.repeat == Repeat.NONE || due == null) return SecondAction.SnoozePicker
+        val move = Habits.learnedMove(dao.snoozesFor(task.id, now - 30L * 24 * 60 * 60 * 1000), due, now)
+        return if (move != null) SecondAction.MoveTo(move) else SecondAction.SnoozePicker
     }
 
     /** Releases reminders held back during focus. Each is re-checked, so a newer session can hold it again. */
@@ -214,6 +230,19 @@ class ReminderEngine(
         scheduler.cancelFollowUp(cueId)
         dao.updateCue(cue.copy(snoozedUntil = until, ackKey = cue.firedKey))
         scheduler.set(cueId, until)
+        val t = LocalDateTime.ofInstant(Instant.ofEpochMilli(until), ZoneId.systemDefault())
+        dao.logSnooze(SnoozeLogEntity(taskId = cue.taskId, at = now, targetMin = t.hour * 60 + t.minute))
+    }
+
+    /** "Move to 7 PM": the learned habit becomes the task's time. Not a postponement; repeat settings stay as they are. */
+    suspend fun moveTo(cueId: Long, time: LocalTime) {
+        val cue = dao.getCue(cueId) ?: return
+        val task = dao.get(cue.taskId) ?: return
+        notifier.cancelReminder(cueId)
+        scheduler.cancelFollowUp(cueId)
+        tasks.save(task.copy(dueTime = time)) // same date, so save() does not count a postponement
+        dao.clearSnoozes(task.id)
+        memory.add(habitText(task, time), MemorySource.HABIT)
     }
 
     /** "Tomorrow" from the snooze picker moves the task itself, counting as a postponement. */
@@ -254,6 +283,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 ACTION_FOLLOW_UP -> engine.followUp(cueId)
                 ACTION_DONE -> engine.done(cueId)
                 ACTION_ACK -> { context.container.notifier.cancelReminder(cueId); engine.acknowledge(cueId) }
+                ACTION_MOVE -> engine.moveTo(cueId, LocalTime.ofSecondOfDay(intent.getIntExtra(Extras.MINUTES, 0).coerceIn(0, 24 * 60 - 1) * 60L))
                 ACTION_SNOOZE -> engine.snooze(cueId, intent.getIntExtra(Extras.MINUTES, 15).coerceIn(1, 24 * 60))
             }
         }
@@ -264,6 +294,7 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_FOLLOW_UP = "com.friday.app.REMINDER_FOLLOW_UP"
         const val ACTION_DONE = "com.friday.app.REMINDER_DONE"
         const val ACTION_ACK = "com.friday.app.REMINDER_ACK"
+        const val ACTION_MOVE = "com.friday.app.REMINDER_MOVE"
         const val ACTION_SNOOZE = "com.friday.app.REMINDER_SNOOZE"
     }
 }

@@ -17,6 +17,7 @@ import com.friday.app.data.TaskRepository
 import com.friday.app.data.db.FridayDatabase
 import com.friday.app.focus.FocusController
 import com.friday.app.location.PlaceManager
+import com.friday.app.ui.Fmt
 import com.friday.app.reminders.Briefing
 import com.friday.app.reminders.Notifier
 import com.friday.app.reminders.ReminderEngine
@@ -38,7 +39,9 @@ class AppContainer(val context: Context, inMemoryDb: Boolean = false) {
     val tasks = TaskRepository(db, settings, scheduler)
     val notes = NoteRepository(db)
     val memory = MemoryRepository(db)
-    val reminders = ReminderEngine(context, db, settings, scheduler, notifier, tasks)
+    val reminders = ReminderEngine(context, db, settings, scheduler, notifier, tasks, memory) { t, time ->
+        context.getString(R.string.habit_usual_time, t.title, Fmt.time(context, time))
+    }
     val briefing = Briefing(context, settings, tasks, notifier)
     val focus = FocusController(context, db, notifier, scheduler, onEnded = { reminders.releaseHeld() })
     val parser = CommandParser()
