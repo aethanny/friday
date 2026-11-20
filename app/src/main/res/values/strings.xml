@@ -502,6 +502,16 @@
     <string name="voice_phone">Phone voice</string>
 
     <!-- Places -->
+    <string name="memory_title">What FRIDAY knows about me</string>
+    <string name="memory_intro">Small facts FRIDAY remembers to be more helpful. Edit or remove any of them.</string>
+    <string name="memory_add_hint">Add something FRIDAY should know</string>
+    <string name="memory_empty_title">Nothing yet</string>
+    <string name="memory_empty_body">Tell FRIDAY things like “I crash after 10 PM”.</string>
+    <string name="memory_edit">Edit memory</string>
+    <string name="memory_deleted">Removed</string>
+    <string name="memory_source_user">You</string>
+    <string name="memory_source_chat">From chat</string>
+    <string name="memory_source_habit">Habit</string>
     <string name="places_title">Places</string>
     <string name="places_intro">Save the places you go to, so FRIDAY can remind you when you arrive or leave. Stand at the place and tap “I’m here now”.</string>
     <string name="places_here">I’m here now</string>

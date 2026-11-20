@@ -4,6 +4,8 @@ import com.friday.app.data.db.CueAnchor
 import com.friday.app.data.db.CueEntity
 import com.friday.app.data.db.CueKind
 import com.friday.app.data.db.FridayDatabase
+import com.friday.app.data.db.MemoryEntity
+import com.friday.app.data.db.MemorySource
 import com.friday.app.data.db.NoteEntity
 import com.friday.app.data.db.Repeat
 import com.friday.app.data.db.SubtaskEntity
@@ -213,4 +215,26 @@ class NoteRepository(private val db: FridayDatabase) {
     suspend fun keep(note: NoteEntity) = dao.update(note.copy(inbox = false, updatedAt = System.currentTimeMillis()))
     suspend fun delete(note: NoteEntity) = dao.delete(note)
     suspend fun restore(note: NoteEntity) = dao.insert(note)
+}
+
+class MemoryRepository(db: FridayDatabase) {
+    private val dao = db.memories()
+    fun observeAll() = dao.observeAll()
+    suspend fun all() = dao.all()
+
+    /** Trims to 200 chars; returns null if blank, a case-insensitive duplicate, or 100 memories already exist. */
+    suspend fun add(text: String, source: MemorySource): Long? {
+        val t = text.trim().take(200)
+        val existing = dao.all()
+        if (t.isBlank() || existing.size >= 100 || existing.any { it.text.trim().equals(t, ignoreCase = true) }) return null
+        return dao.insert(MemoryEntity(text = t, source = source))
+    }
+
+    suspend fun edit(m: MemoryEntity, text: String) {
+        val t = text.trim().take(200)
+        if (t.isNotBlank()) dao.update(m.copy(text = t))
+    }
+
+    suspend fun delete(m: MemoryEntity) = dao.delete(m)
+    suspend fun restore(m: MemoryEntity) = dao.insert(m)
 }

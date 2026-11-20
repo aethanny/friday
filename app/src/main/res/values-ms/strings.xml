@@ -477,6 +477,16 @@
     <string name="voice_phone">Suara telefon</string>
 
     <!-- Places -->
+    <string name="memory_title">Apa FRIDAY tahu tentang saya</string>
+    <string name="memory_intro">Fakta kecil yang FRIDAY ingat supaya lebih membantu. Ubah atau buang mana-mana.</string>
+    <string name="memory_add_hint">Tambah sesuatu yang FRIDAY patut tahu</string>
+    <string name="memory_empty_title">Belum ada apa-apa</string>
+    <string name="memory_empty_body">Beritahu FRIDAY perkara seperti “Saya penat selepas 10 malam”.</string>
+    <string name="memory_edit">Ubah ingatan</string>
+    <string name="memory_deleted">Dibuang</string>
+    <string name="memory_source_user">Anda</string>
+    <string name="memory_source_chat">Dari sembang</string>
+    <string name="memory_source_habit">Tabiat</string>
     <string name="places_title">Tempat</string>
     <string name="places_intro">Simpan tempat yang anda selalu pergi, supaya FRIDAY boleh ingatkan anda bila sampai atau keluar. Berdiri di tempat itu dan ketik “Saya di sini sekarang”.</string>
     <string name="places_here">Saya di sini sekarang</string>

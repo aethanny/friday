@@ -188,6 +188,7 @@ private fun AppNav(pendingRoute: StateFlow<String?>, consumeRoute: () -> Unit) {
                 composable("settings/ai") { AiSettingsScreen(nav) }
                 composable("settings/voice") { VoiceSettingsScreen(nav) }
                 composable("settings/places") { PlacesScreen(nav) }
+                composable("settings/memory") { com.friday.app.ui.settings.MemoryScreen(nav) }
             }
             AnimatedVisibility(showTabs, Modifier.align(Alignment.BottomCenter), enter = fadeIn(tween(150)), exit = fadeOut(tween(100))) {
                 TabBar(route) { nav.navigateTab(it) }

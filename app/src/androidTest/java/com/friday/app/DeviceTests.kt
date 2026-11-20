@@ -268,6 +268,19 @@ class DeviceTests {
         assertEquals(31, c.tasks.get(id)!!.repeatDays)
     }
 
+    @Test fun memoryDedupesAndTrims() = runBlocking<Unit> {
+        assertNotNull(c.memory.add("Hates long messages", com.friday.app.data.db.MemorySource.USER))
+        assertNull(c.memory.add("  hates LONG messages ", com.friday.app.data.db.MemorySource.CHAT))
+        val id = c.memory.add("x".repeat(250), com.friday.app.data.db.MemorySource.USER)
+        assertNotNull(id)
+        assertEquals(200, c.memory.all().first { it.id == id }.text.length)
+    }
+
+    @Test fun memoryCap() = runBlocking<Unit> {
+        repeat(100) { assertNotNull(c.memory.add("fact $it", com.friday.app.data.db.MemorySource.USER)) }
+        assertNull(c.memory.add("one too many", com.friday.app.data.db.MemorySource.USER))
+    }
+
     private fun alarm(cueId: Long): PendingIntent? = PendingIntent.getBroadcast(
         ctx, cueId.toInt(),
         Intent(ctx, ReminderReceiver::class.java).setAction(ReminderReceiver.ACTION_FIRE).putExtra(Extras.CUE_ID, cueId),

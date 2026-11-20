@@ -9,6 +9,7 @@ import com.friday.app.ai.OpenAiCompatClient
 import com.friday.app.voice.Speaker
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
+import com.friday.app.data.MemoryRepository
 import com.friday.app.data.NoteRepository
 import com.friday.app.data.SecretStore
 import com.friday.app.data.SettingsStore
@@ -36,6 +37,7 @@ class AppContainer(val context: Context, inMemoryDb: Boolean = false) {
     val scheduler = ReminderScheduler(context, db, places)
     val tasks = TaskRepository(db, settings, scheduler)
     val notes = NoteRepository(db)
+    val memory = MemoryRepository(db)
     val reminders = ReminderEngine(db, settings, scheduler, notifier, tasks)
     val briefing = Briefing(context, settings, tasks, notifier)
     val focus = FocusController(context, db, notifier, scheduler)
