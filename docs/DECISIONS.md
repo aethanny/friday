@@ -35,8 +35,11 @@ CONTEXT.md is the original brief; where this file differs, this file wins.
 ## Focus
 - Timestamps, not a running timer: the countdown survives closing the app, process death and reboots.
 - Do Not Disturb during focus (needs one-time access); FRIDAY restores your previous DND setting.
-- Distraction shield: apps you pick are covered by a calm "back to your task" screen during focus,
-  with "Let me in for 5 minutes". Never a hard lock. Needs Usage access + Display over other apps.
+- Distraction shield: apps you pick are covered by a calm "back to your task" screen during focus.
+  It shows the focus ring and time left, names the app ("YouTube can wait 22 min."), what you've
+  already put in, and your next step. "Back to my task" is instant; "Let me in for 5 minutes" unlocks
+  after one guided breath (8 s), the pause that breaks the automatic reach for the app. Never a hard
+  lock. Every new attempt gets a fresh breath. Needs Usage access + Display over other apps.
 - End of session: Completed / Made progress / Got distracted, then an optional "Where did you stop?".
 
 ## Assistant
