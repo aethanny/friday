@@ -261,6 +261,13 @@ class DeviceTests {
         assertEquals(31, t.repeatDays)
     }
 
+    @Test fun titleEditKeepsMonthlyAnchorEvenWithZeroRepeatDays() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Rent", dueDate = LocalDate.of(2027, 1, 31), repeat = Repeat.MONTHLY))
+        c.tasks.postpone(id, 28) // Feb 28, anchor stays 31
+        c.tasks.save(c.tasks.get(id)!!.copy(title = "x", repeatDays = 0))
+        assertEquals(31, c.tasks.get(id)!!.repeatDays)
+    }
+
     private fun alarm(cueId: Long): PendingIntent? = PendingIntent.getBroadcast(
         ctx, cueId.toInt(),
         Intent(ctx, ReminderReceiver::class.java).setAction(ReminderReceiver.ACTION_FIRE).putExtra(Extras.CUE_ID, cueId),

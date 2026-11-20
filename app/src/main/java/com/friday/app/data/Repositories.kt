@@ -42,9 +42,13 @@ class TaskRepository(
         val old = if (t.id != 0L) dao.get(t.id) else null
         if (t.repeat == Repeat.MONTHLY) {
             // anchor day follows the due date, except when postponing (keeps the original day, e.g. the 31st)
+            val unchanged = old != null && old.repeat == Repeat.MONTHLY && old.dueDate == t.dueDate && old.repeatDays in 1..31
             val keep = keepMonthlyAnchor && t.repeatDays in 1..31
-            val rederive = old == null || old.repeat != Repeat.MONTHLY || old.dueDate != t.dueDate
-            if (!keep && (rederive || t.repeatDays !in 1..31)) t = t.copy(repeatDays = t.dueDate!!.dayOfMonth)
+            t = when {
+                unchanged -> t.copy(repeatDays = old!!.repeatDays) // editor may send 0; the stored anchor wins
+                keep -> t
+                else -> t.copy(repeatDays = t.dueDate!!.dayOfMonth)
+            }
         }
         val id = if (old == null) {
             dao.insert(t.copy(id = 0))
