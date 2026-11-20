@@ -97,5 +97,11 @@ CONTEXT.md is the original brief; where this file differs, this file wins.
 - Held reminders and quiet-place silence end after 3 h at most, so a stale hold can never swallow a reminder.
 - Follow-up nudges are suppressed at quiet places.
 - Legacy monthly tasks that had already drifted keep the drifted day: the original day cannot be recovered.
-- Lecture halls are not detected as hold places: OpenStreetMap rarely maps them. Use a saved Campus place instead.
+- Lecture halls are not detected as hold places: OpenStreetMap rarely maps them, and saved places other than Home don't change how reminders behave. Put the phone on silent yourself, or use Focus with Do Not Disturb there.
 - "Went silent" is only claimed when Do Not Disturb access is granted.
+
+## v1.1 final review
+- A reminder whose time passed less than 2 min ago is left alone by the app-start re-sync: its alarm may be firing at that moment, and marking it as fired made the receiver post nothing. Older ones are still marked as fired, as in v1.0.
+- Only reminders anchored to a task's start time teach "Move to <time>": snoozing a day, end or place reminder says nothing about when you like to start.
+- Pausing focus releases held reminders, like ending it does (a paused session silences nothing). Each held reminder is released on its own; one that fails gets its alarm back a minute later.
+- At a quiet place without Do Not Disturb access FRIDAY does not hold reminders: the phone isn't silent, so holding would only delay them with no notice.

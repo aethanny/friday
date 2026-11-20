@@ -65,6 +65,8 @@ class TaskRepository(
         val saved = dao.get(id)!!
         val scheduleChanged = old == null || old.dueDate != saved.dueDate || old.dueTime != saved.dueTime || old.durationMin != saved.durationMin
         syncAutoCues(saved, s, scheduleChanged)
+        // After syncAutoCues, which writes back cues it read earlier. The AI line was written for the old title/star.
+        if (old != null && (old.title != saved.title || old.important != saved.important)) dao.clearSmart(id)
         scheduler.syncTask(id)
         onSaved(id)
         return id
@@ -139,7 +141,7 @@ class TaskRepository(
     }
 
     suspend fun setImportant(id: Long, important: Boolean) {
-        dao.get(id)?.let { dao.update(it.copy(important = important)) }
+        dao.get(id)?.takeIf { it.important != important }?.let { dao.update(it.copy(important = important)); dao.clearSmart(id) }
     }
 
     /** Moves a task's due date by [days]; counts as a postponement. */
@@ -178,7 +180,7 @@ class TaskRepository(
     }
 
     suspend fun updateCue(cue: CueEntity) {
-        dao.updateCue(cue.copy(message = cue.message.trim().take(300), firedKey = null, ackKey = null, snoozedUntil = null, held = false))
+        dao.updateCue(cue.copy(message = cue.message.trim().take(300), firedKey = null, ackKey = null, snoozedUntil = null, held = false, smartText = null, smartKey = null))
         scheduler.syncTask(cue.taskId)
     }
 

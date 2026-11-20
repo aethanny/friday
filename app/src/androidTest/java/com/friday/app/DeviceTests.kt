@@ -667,7 +667,10 @@ class DeviceTests {
         assertTrue(fakeDnd.reasons.isEmpty())
         val b = cueOf(timedTask("[test] B"), CueKind.START)
         c.reminders.fire(b.id, now)
-        assertTrue(c.db.tasks().getCue(b.id)!!.held) // FRIDAY's own reminders still wait
+        val cue = c.db.tasks().getCue(b.id)!!
+        assertFalse(cue.held) // the phone isn't silent, so holding would only delay reminders with no notice
+        assertEquals(now, cue.firedAt)
+        assertFalse(c.visits.holding(now))
     }
 
     @Test fun dndReasonsPersistInPrefs() {
@@ -721,6 +724,73 @@ class DeviceTests {
         assertEquals(cue.firedKey, cue.ackKey)
         delay(500)
         assertFalse(showing(NotificationIds.reminder(b.id)))
+    }
+
+    // --- Final review fixes ---
+
+    private suspend fun taskDueAgo(title: String, seconds: Long): Long {
+        val t = java.time.LocalDateTime.now().minusSeconds(seconds)
+        return c.tasks.save(TaskEntity(title = title, dueDate = t.toLocalDate(), dueTime = t.toLocalTime()))
+    }
+
+    @Test fun justPassedReminderSurvivesColdStartSync() = runBlocking<Unit> {
+        val cue = cueOf(taskDueAgo("[test] just now", 30), CueKind.START) // trigger 30–90 s ago (minute precision)
+        c.scheduler.syncAll(fireMissed = false) // FridayApp.onCreate, racing the receiver
+        c.reminders.fire(cue.id)
+        assertNotNull(c.db.tasks().getCue(cue.id)!!.firedAt) // posted, not silently marked as fired
+    }
+
+    @Test fun reminderMissedLongAgoStillMarkedFiredOnSync() = runBlocking<Unit> {
+        val cue = cueOf(taskDueAgo("[test] long ago", 10 * 60), CueKind.START)
+        c.scheduler.syncAll(fireMissed = false)
+        val synced = c.db.tasks().getCue(cue.id)!!
+        assertNotNull(synced.firedKey)
+        c.reminders.fire(cue.id)
+        assertNull(c.db.tasks().getCue(cue.id)!!.firedAt)
+    }
+
+    @Test fun editingTaskClearsAiLine() = runBlocking<Unit> {
+        val id = timedTask("[test] Essay")
+        val cue = cueOf(id, CueKind.START)
+        c.db.tasks().setSmart(cue.id, "Old AI line", 1L)
+        c.tasks.save(c.tasks.get(id)!!.copy(title = "[test] Essay draft"))
+        assertNull(c.db.tasks().getCue(cue.id)!!.smartText)
+        c.db.tasks().setSmart(cue.id, "Old AI line", 1L)
+        c.tasks.save(c.tasks.get(id)!!.copy(important = true))
+        assertNull(c.db.tasks().getCue(cue.id)!!.smartText)
+        c.db.tasks().setSmart(cue.id, "Old AI line", 1L)
+        c.tasks.updateCue(c.db.tasks().getCue(cue.id)!!.copy(message = "My words"))
+        val edited = c.db.tasks().getCue(cue.id)!!
+        assertNull(edited.smartText)
+        assertNull(edited.smartKey)
+    }
+
+    @Test fun snoozingDayReminderTeachesNothing() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "[test] Laundry", dueDate = today.plusDays(1), repeat = Repeat.DAILY))
+        val day = cueOf(id, CueKind.DAY)
+        repeat(3) { c.reminders.snooze(day.id, 60) }
+        assertTrue(c.db.tasks().snoozesFor(id, 0).isEmpty())
+    }
+
+    @Test fun pausingFocusReleasesHeldReminders() = runBlocking<Unit> {
+        // pause() cancels the shared end alarm and posts the focus notification: skip while the app's own session still has an
+        // end alarm (running, or time up only moments ago); a paused one gets its notification back afterwards.
+        val now = System.currentTimeMillis()
+        val real = ctx.container.focus.current()
+        assumeTrue("real focus session running", real == null || real.pausedAt != null || FocusMath.remainingMs(real, now) < -5 * 60_000)
+        val a = timedTask("[test] A"); val b = cueOf(timedTask("[test] B"), CueKind.START)
+        val session = focusOn(a, now)
+        c.reminders.fire(b.id, now)
+        assertTrue(c.db.tasks().getCue(b.id)!!.held)
+        try {
+            c.focus.pause(session)
+        } finally {
+            c.notifier.cancelFocus()
+            if (real?.pausedAt != null) ctx.container.notifier.focusOngoing(real)
+        }
+        val released = c.db.tasks().getCue(b.id)!!
+        assertFalse(released.held)
+        assertNotNull(released.firedAt)
     }
 
     private fun alarm(cueId: Long): PendingIntent? = PendingIntent.getBroadcast(

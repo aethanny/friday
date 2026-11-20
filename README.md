@@ -88,7 +88,8 @@ new build can't update the installed app, and you'd have to uninstall FRIDAY (lo
 - **Reminders inside tasks**: automatic "get ready" (15 min before), "start" and "time's up"
   reminders, plus your own (for example "5 min before the end: screenshot analytics"). You can reuse the
   same reminders as last time, and add place reminders (arrive/leave).
-- **Notifications**: Mark done / Got it, Snooze, and Snooze… (5 min, 15 min, 1 h, Tomorrow).
+- **Notifications**: two buttons: the main action (Mark done / Got it) and either Snooze… (5 min, 15 min,
+  1 h, Tomorrow) or "Move to <time>" once FRIDAY has learned your usual time.
   One follow-up nudge if ignored, quiet hours (silent delivery), exact alarms, and reminders restored
   after reboot, clock and time-zone changes. Times are wall-clock, so 9 PM stays 9 PM when you travel.
 - **Focus**: 5/15/25/45/custom minutes; the timer survives closing the app. Do Not Disturb during
@@ -101,7 +102,8 @@ new build can't update the installed app, and you'd have to uninstall FRIDAY (lo
 - **What FRIDAY knows about me**: a list of facts the AI remembered (for example "I study best in the
   morning"). You can read, edit and delete every one. The AI uses it, and thinks before it replies.
 - **Reminders that say why**: a reminder tells you why it matters, with two buttons: the main action and
-  a "Move to <time>" button once FRIDAY has learned when you usually snooze to.
+  either "Snooze…" (5 min, 15 min, 1 h, Tomorrow) or "Move to <time>" once FRIDAY has learned when you
+  usually snooze a start reminder to.
 - **Reminders that wait for you**: while a focus session runs, other reminders are held and arrive after it
   (urgent + important ones still come through). A "get ready" or "start" reminder is skipped if you are
   already focusing on that task. Several reminders at once arrive as one bundle with one alert.
@@ -146,10 +148,10 @@ No analytics and no ads.
 
 ## Test results (Pixel 6 Pro emulator, Android 16)
 
-- 36 unit tests pass: the offline parser in English, Malay and mixed sentences; matrix ranking;
+- 65 unit tests pass: the offline parser in English, Malay and mixed sentences; matrix ranking;
   schedules, repeats and time zones; quiet hours; focus timing; and AI action validation with the
   OpenAI-compatible client against a fake server.
-- 10 device tests pass:
+- 54 device tests pass (two focus tests skip themselves while a real focus session is running), including:
   - task create/edit/complete/delete with undo, and repeating-task history
   - data surviving a database restart
   - reminders firing once, snooze, Mark done and the single follow-up nudge
@@ -176,8 +178,8 @@ No analytics and no ads.
 
 ## Known limitations
 
-- **Lecture halls** are rarely mapped in OpenStreetMap, so FRIDAY can't tell you are in one. Save it as a
-  Campus place instead.
+- **Lecture halls** are rarely mapped in OpenStreetMap, so FRIDAY can't tell you are in one. Put the
+  phone on silent yourself, or start Focus with Do Not Disturb there.
 - **Time limits:** quiet-place silence and held reminders end after 3 hours at most.
 - **Downgrading** from v1.1 to v1.0 is not possible without uninstalling (the database was upgraded), which
   erases your data. Keep the v1.1 APK.

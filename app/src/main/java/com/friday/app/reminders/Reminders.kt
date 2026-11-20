@@ -11,7 +11,10 @@ import com.friday.app.data.AppSettings
 import com.friday.app.data.SettingsStore
 import com.friday.app.data.MemoryRepository
 import com.friday.app.data.TaskRepository
+import android.util.Log
+import com.friday.app.data.db.CueAnchor
 import com.friday.app.data.db.CueEntity
+import kotlinx.coroutines.CancellationException
 import com.friday.app.data.db.CueKind
 import com.friday.app.data.db.FocusSessionEntity
 import com.friday.app.data.db.FridayDatabase
@@ -107,6 +110,7 @@ class ReminderScheduler(private val ctx: Context, private val db: FridayDatabase
                 cue.snoozedUntil == null && cue.firedKey == key -> cancel(cue.id)
                 at > now -> set(cue.id, at)
                 fireMissed && now - at < MISSED_WINDOW_MS -> onMissed(cue.id)
+                now - at < GRACE_MS -> Unit // just passed: its alarm may be firing right now (cold start), let the receiver handle it
                 else -> { cancel(cue.id); db.tasks().updateCue(cue.copy(firedKey = key, snoozedUntil = null, held = false)) }
             }
         }
@@ -114,6 +118,7 @@ class ReminderScheduler(private val ctx: Context, private val db: FridayDatabase
 
     companion object {
         const val MISSED_WINDOW_MS = 60 * 60 * 1000L
+        const val GRACE_MS = 2 * 60_000L
     }
 }
 
@@ -187,9 +192,17 @@ class ReminderEngine(
             // Defensive: a hold always sets snoozedUntil; without it the cue was rescheduled since, so just drop the flag.
             if (cue.snoozedUntil == null) { dao.updateCue(cue.copy(held = false)); continue }
             // snoozedUntil = now (not null): a held snooze shares firedKey with the first alert and would be dropped as a duplicate.
-            dao.updateCue(cue.copy(held = false, snoozedUntil = now))
-            scheduler.cancel(cue.id)
-            fire(cue.id, now)
+            // One failing cue must not strand the rest; a failed one gets its alarm back to try again in a minute.
+            try {
+                dao.updateCue(cue.copy(held = false, snoozedUntil = now))
+                scheduler.cancel(cue.id)
+                fire(cue.id, now)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("ReminderEngine", "releasing cue ${cue.id} failed", e)
+                runCatching { scheduler.set(cue.id, now + 60_000) }
+            }
         }
     }
 
@@ -251,6 +264,7 @@ class ReminderEngine(
         scheduler.cancelFollowUp(cueId)
         dao.updateCue(cue.copy(snoozedUntil = until, ackKey = cue.firedKey))
         scheduler.set(cueId, until)
+        if (cue.anchor != CueAnchor.START) return // only start-time reminders teach "Move to <time>"
         val t = LocalDateTime.ofInstant(Instant.ofEpochMilli(until), ZoneId.systemDefault())
         dao.logSnooze(SnoozeLogEntity(taskId = cue.taskId, at = now, targetMin = t.hour * 60 + t.minute))
     }

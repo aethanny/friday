@@ -29,7 +29,7 @@ class FocusController(
     private val notifier: Notifier,
     private val scheduler: ReminderScheduler,
     private val dnd: DndControl = SystemDnd(ctx),
-    /** Runs once the session stops silencing reminders (ended or time up): releases the ones held back. */
+    /** Runs once the session stops silencing reminders (ended, paused or time up): releases the ones held back. */
     private val onEnded: suspend () -> Unit = {},
     // Last so callers can keep passing the clock as a trailing lambda.
     private val now: () -> Long = System::currentTimeMillis,
@@ -60,6 +60,7 @@ class FocusController(
         dao.update(p)
         cancelEnd()
         notifier.focusOngoing(p)
+        releaseHeld() // a paused session silences nothing, so held reminders arrive now
     }
 
     suspend fun resume(id: Long) {

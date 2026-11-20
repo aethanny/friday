@@ -207,9 +207,10 @@ class PlaceAwareness(
             PlaceKind.HOLD -> {
                 if (kind.name in settings.current().placeOffKinds) return
                 val v = visits.get() ?: return // a silence needs a visit that can end
+                // Without DND access the phone isn't silent: holding would only delay reminders with no notice.
+                if (!system.hasDndAccess()) return
                 visits.set(v.copy(holding = true))
                 system.armCap(v.startedAt) // never quiet for more than 3 h, even if leaving is never detected
-                if (!system.hasDndAccess()) return // FRIDAY still holds its own reminders, but claims no silence
                 dnd.enable(REASON)
                 val undo = PendingIntent.getBroadcast(
                     ctx, UNDO_REQUEST, Intent(ctx, PlaceActionReceiver::class.java).setAction(PlaceActionReceiver.ACTION_UNDO), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,

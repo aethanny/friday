@@ -22,6 +22,7 @@ import com.friday.app.domain.Schedule
 import com.friday.app.reminders.ReminderEngine
 import com.friday.app.ui.Fmt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -173,6 +174,16 @@ object AiActions {
             .filter { it.cueId in requestedIds }
             .mapNotNull { l -> clean(l.text, 90)?.let { l.cueId to it } }.toMap()
     }.getOrDefault(emptyMap())
+
+    /** Cues due in the next 24 h that still need an AI line, soonest first, at most 20. */
+    fun linesDue(open: List<TaskWithDetails>, now: LocalDateTime): List<Triple<TaskEntity, CueEntity, LocalDateTime>> =
+        open.flatMap { d ->
+            d.cues.mapNotNull { c ->
+                if (c.message.isNotBlank()) return@mapNotNull null // the user's own wording is never replaced
+                val at = Schedule.trigger(d.task, c) ?: return@mapNotNull null
+                if (at.isBefore(now) || at.isAfter(now.plusHours(24)) || c.smartKey == Schedule.key(at)) null else Triple(d.task, c, at)
+            }
+        }.sortedBy { it.third }.take(20)
 
     fun parseSteps(raw: String): List<String> = runCatching {
         json.decodeFromString(AiSteps.serializer(), raw.substring(raw.indexOf('{'), raw.lastIndexOf('}') + 1)).steps
@@ -384,14 +395,10 @@ class OnlineAssistant(
 
     /** Fire-and-forget: writes warm one-line texts for cues due in the next 24 h. Never throws. */
     suspend fun prepareLines(now: LocalDateTime = this.now()) {
+        if (!linesLock.tryLock()) return // one already running (app start, saves, briefing): skip, don't pay twice
         try {
             if (!available()) return
-            val due = tasks.openTasks().flatMap { d ->
-                d.cues.mapNotNull { c ->
-                    val at = Schedule.trigger(d.task, c) ?: return@mapNotNull null
-                    if (at.isBefore(now) || at.isAfter(now.plusHours(24)) || c.smartKey == Schedule.key(at)) null else Triple(d.task, c, at)
-                }
-            }.sortedBy { it.third }.take(20)
+            val due = AiActions.linesDue(tasks.openTasks(), now)
             if (due.isEmpty()) return
             val ms = ctx.resources.configuration.locales[0].language == "ms"
             val system = """
@@ -409,13 +416,21 @@ class OnlineAssistant(
                 }
             }
             val lines = AiActions.parseLines(ask(listOf("system" to system, "user" to items.toString())), due.map { it.second.id }.toSet())
-            due.forEach { (_, c, at) -> lines[c.id]?.let { db.tasks().setSmart(c.id, it, Schedule.key(at)) } }
+            due.forEach { (t, c, at) ->
+                // Renamed or re-starred while the AI was answering: this line is already stale.
+                val cur = db.tasks().get(t.id)
+                if (cur?.title == t.title && cur.important == t.important) lines[c.id]?.let { db.tasks().setSmart(c.id, it, Schedule.key(at)) }
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             // AiException, offline, bad reply: the offline text is used instead.
+        } finally {
+            linesLock.unlock()
         }
     }
+
+    private val linesLock = Mutex()
 
     private fun language(lang: Lang) = if (lang == Lang.MS) "Malay (Bahasa Melayu)" else "English"
 
