@@ -218,6 +218,8 @@ class ReminderEngine(
         val task = dao.get(cue.taskId) ?: return
         if (task.completedAt != null || cue.snoozedUntil != null || cue.firedKey == null || cue.ackKey == cue.firedKey) return
         holdUntil(task, db.focus().active(), now)?.let { scheduler.setFollowUp(cue.id, it); return } // nudge after focus instead
+        // At a quiet place: skip the nudge altogether. One fewer is calmer than one in a mosque.
+        if (atQuietPlace() && !importantUrgent(task, now)) { dao.updateCue(cue.copy(ackKey = cue.firedKey)); return }
         val s = settings.current()
         notifier.postReminder(
             task, cue, channelFor(cue, s, now), followUp = true,
@@ -328,6 +330,7 @@ class SystemEventsReceiver : BroadcastReceiver() {
             c.scheduler.syncAll(fireMissed = true) { c.reminders.fire(it) }
             c.briefing.schedule()
             c.focus.restoreAfterRestart()
+            c.awareness.restoreAfterRestart()
             if (c.settings.current().placeAwareness) c.awareness.enable() // activity updates do not survive a restart
         }
     }

@@ -55,7 +55,7 @@ class AppContainer(val context: Context, inMemoryDb: Boolean = false, val dnd: D
     val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
     val ai = OnlineAssistant(context, db, settings, secrets, tasks, notes, memory, reminders, OpenAiCompatClient(http))
     val assistant = AssistantEngine(context, db, tasks, notes, memory, parser, ai, places, settings)
-    val awareness = PlaceAwareness(context, db, settings, places, reminders, notifier, tasks, memory, OverpassClient(http), visits, dnd)
+    val awareness = PlaceAwareness(context, db, settings, places, reminders, scheduler, notifier, tasks, memory, OverpassClient(http), visits, dnd)
     val speaker = Speaker(context, settings, secrets, http)
 }
 

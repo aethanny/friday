@@ -595,6 +595,46 @@ class DeviceTests {
         assertEquals(now + 60_000 + 3 * 60 * 60_000L, cue.snoozedUntil) // now held by the place
     }
 
+    @Test fun placeCapEndsQuietVisit() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val b = cueOf(timedTask("[test] B"), CueKind.START)
+        atQuietPlace(now)
+        c.dnd.enable("place")
+        c.reminders.fire(b.id, now)
+        assertTrue(c.db.tasks().getCue(b.id)!!.held)
+        val cap = now + 3 * 60 * 60_000L
+        c.awareness.capReached(now, cap)
+        assertEquals(emptySet<String>(), fakeDnd.reasons)
+        val released = c.db.tasks().getCue(b.id)!!
+        assertFalse(released.held)
+        assertEquals(cap, released.firedAt)
+        assertNull(c.visits.get())
+    }
+
+    @Test fun placeCapForEndedVisitDoesNothing() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        c.awareness.capReached(now - 60_000, now) // no visit at all
+        assertNull(c.visits.get())
+        atQuietPlace(now)
+        c.dnd.enable("place")
+        c.awareness.capReached(now - 60_000, now) // an older visit's cap: the current one stays
+        assertEquals(now, c.visits.get()!!.startedAt)
+        assertEquals(setOf("place"), fakeDnd.reasons)
+    }
+
+    @Test fun followUpSkippedAtQuietPlace() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val b = cueOf(timedTask("[test] B"), CueKind.START)
+        c.reminders.fire(b.id, now)
+        c.notifier.cancelReminder(b.id)
+        atQuietPlace(now + 60_000)
+        c.reminders.followUp(b.id, now + 10 * 60_000)
+        val cue = c.db.tasks().getCue(b.id)!!
+        assertEquals(cue.firedKey, cue.ackKey)
+        delay(500)
+        assertFalse(showing(NotificationIds.reminder(b.id)))
+    }
+
     private fun alarm(cueId: Long): PendingIntent? = PendingIntent.getBroadcast(
         ctx, cueId.toInt(),
         Intent(ctx, ReminderReceiver::class.java).setAction(ReminderReceiver.ACTION_FIRE).putExtra(Extras.CUE_ID, cueId),

@@ -23,6 +23,7 @@ import com.friday.app.focus.DndControl
 import com.friday.app.reminders.Channels
 import com.friday.app.reminders.Notifier
 import com.friday.app.reminders.ReminderEngine
+import com.friday.app.reminders.ReminderScheduler
 import com.friday.app.reminders.launchAsync
 import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.ActivityTransition
@@ -80,6 +81,7 @@ class PlaceAwareness(
     private val settings: SettingsStore,
     private val places: PlaceManager,
     private val reminders: ReminderEngine,
+    private val scheduler: ReminderScheduler,
     private val notifier: Notifier,
     private val tasks: TaskRepository,
     private val memory: MemoryRepository,
@@ -97,6 +99,12 @@ class PlaceAwareness(
 
     private fun checkIntent(flags: Int = PendingIntent.FLAG_UPDATE_CURRENT): PendingIntent? =
         PendingIntent.getBroadcast(ctx, CHECK_REQUEST, Intent(ctx, VisitCheckReceiver::class.java), PendingIntent.FLAG_IMMUTABLE or flags)
+
+    private fun capIntent(startedAt: Long, flags: Int = PendingIntent.FLAG_UPDATE_CURRENT): PendingIntent? = PendingIntent.getBroadcast(
+        ctx, CAP_REQUEST,
+        Intent(ctx, VisitCheckReceiver::class.java).setAction(VisitCheckReceiver.ACTION_CAP).putExtra(VisitCheckReceiver.EXTRA_STARTED, startedAt),
+        PendingIntent.FLAG_IMMUTABLE or flags,
+    )
 
     @SuppressLint("MissingPermission")
     suspend fun enable() {
@@ -145,8 +153,12 @@ class PlaceAwareness(
         when (kind) {
             PlaceKind.HOLD -> {
                 if (kind.name in settings.current().placeOffKinds) return
-                visits.get()?.let { visits.set(it.copy(holding = true)) }
+                val v = visits.get()
+                v?.let { visits.set(it.copy(holding = true)) }
                 dnd.enable(REASON)
+                // Never silent for more than 3 h, even if leaving is never detected (calls must get through).
+                val startedAt = v?.startedAt ?: now
+                scheduler.setAt(startedAt + ReminderEngine.PLACE_HOLD_MS, capIntent(startedAt)!!)
                 val undo = PendingIntent.getBroadcast(
                     ctx, UNDO_REQUEST, Intent(ctx, PlaceActionReceiver::class.java).setAction(PlaceActionReceiver.ACTION_UNDO), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                 )
@@ -176,12 +188,27 @@ class PlaceAwareness(
     suspend fun left(now: Long = System.currentTimeMillis()) {
         val v = visits.get() ?: return
         visits.set(null)
+        capIntent(v.startedAt, PendingIntent.FLAG_NO_CREATE)?.let { am.cancel(it); it.cancel() }
         places.unwatchVisit()
         if (v.holding) { dnd.restore(REASON); notifier.cancelPlace() }
         reminders.releaseHeld(now) // the focus rule holds again whatever a running focus session still covers
     }
 
     fun holding(): Boolean = visits.holding()
+
+    /** The 3 h cap of the visit that started at [startedAt]: end it. A visit that already ended (or a newer one) is left alone. */
+    suspend fun capReached(startedAt: Long, now: Long = System.currentTimeMillis()) {
+        if (visits.get()?.startedAt != startedAt) return
+        left(now)
+    }
+
+    /** Alarms do not survive a restart: end a quiet-place visit past its cap, or arm the cap again. */
+    suspend fun restoreAfterRestart(now: Long = System.currentTimeMillis()) {
+        val v = visits.get() ?: return
+        if (v.kind != PlaceKind.HOLD) return
+        val cap = v.startedAt + ReminderEngine.PLACE_HOLD_MS
+        if (now >= cap) left(now) else scheduler.setAt(cap, capIntent(v.startedAt)!!)
+    }
 
     /** "Undo" on "Went silent here". Twice for the same kind of place, and FRIDAY stops going silent there. */
     suspend fun undo() {
@@ -207,6 +234,7 @@ class PlaceAwareness(
         private const val STILL_REQUEST = 2_000_000_005
         private const val CHECK_REQUEST = 2_000_000_006
         private const val UNDO_REQUEST = 2_000_000_007
+        private const val CAP_REQUEST = 2_000_000_008
         private val HOME_NAMES = setOf("home", "rumah")
     }
 }
@@ -247,7 +275,15 @@ class StillnessReceiver : BroadcastReceiver() {
 class VisitCheckReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val c = context.container
-        launchAsync { if (c.settings.current().placeAwareness) c.awareness.stillFor3Min() }
+        launchAsync {
+            if (intent.action == ACTION_CAP) c.awareness.capReached(intent.getLongExtra(EXTRA_STARTED, -1))
+            else if (c.settings.current().placeAwareness) c.awareness.stillFor3Min()
+        }
+    }
+
+    companion object {
+        const val ACTION_CAP = "com.friday.app.VISIT_CAP"
+        const val EXTRA_STARTED = "friday.visit_started"
     }
 }
 
