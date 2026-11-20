@@ -1,5 +1,10 @@
 package com.friday.app.ui.screens
 
+import com.friday.app.ui.settings.TextDialog
+import kotlinx.coroutines.flow.combine
+import com.friday.app.data.SecretStore
+import com.friday.app.ai.AiException
+import android.content.Context
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
@@ -123,6 +128,26 @@ class TaskEditorViewModel(private val c: AppContainer, val id: Long) : ViewModel
     fun deleteCue(cue: CueEntity) = viewModelScope.launch { c.tasks.deleteCue(cue) }
     fun setAutoPrep(v: Boolean) = viewModelScope.launch { c.tasks.setAutoPrep(id, v) }
     fun reuse() = viewModelScope.launch { c.tasks.copyCues(id, reusable.value); reusable.value = emptyList() }
+    val aiReady: StateFlow<Boolean> = combine(c.settings.flow, c.secrets.version) { s, _ -> s.aiEnabled && c.secrets.has(SecretStore.AI_KEY) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val busy = MutableStateFlow(false)
+
+    /** Runs an AI request with a busy flag; errors come back as user-facing text. */
+    private suspend fun <T> withAi(ctx: Context, block: suspend () -> T): Result<T> {
+        busy.value = true
+        return try {
+            Result.success(block())
+        } catch (e: AiException) {
+            Result.failure(Exception(c.ai.errorText(ctx, e)))
+        } finally {
+            busy.value = false
+        }
+    }
+
+    suspend fun suggestReminders(ctx: Context) = withAi(ctx) { c.ai.suggestReminders(c.tasks.get(id)!!, appLang(ctx)) }
+    suspend fun breakDown(ctx: Context) = withAi(ctx) { c.ai.breakDown(c.tasks.details(id)!!, appLang(ctx)) }
+    fun addCues(cues: List<CueEntity>) = viewModelScope.launch { cues.forEach { c.tasks.addCue(it) } }
+    fun addSteps(steps: List<String>) = viewModelScope.launch { c.tasks.addSubtasks(id, steps) }
     suspend fun delete() = c.tasks.delete(id)
     suspend fun complete() = c.tasks.complete(id)
     fun reopen() = viewModelScope.launch { c.tasks.reopen(id) }
@@ -163,6 +188,18 @@ fun TaskEditorScreen(nav: NavController, id: Long) {
     var cueSheet by remember { mutableStateOf<CueEntity?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     val newStep = rememberTextFieldState()
+    val aiReady by vm.aiReady.collectAsStateWithLifecycle()
+    val busy by vm.busy.collectAsStateWithLifecycle()
+    var suggestedCues by remember { mutableStateOf<List<CueEntity>?>(null) }
+    var suggestedSteps by remember { mutableStateOf<List<String>?>(null) }
+    var askFirstStep by remember { mutableStateOf(false) }
+    val suggest: () -> Unit = {
+        scope.launch { vm.suggestReminders(ctx).onSuccess { suggestedCues = it }.onFailure { toaster.show(it.message.orEmpty()) } }
+    }
+    val breakDown: () -> Unit = {
+        if (aiReady) scope.launch { vm.breakDown(ctx).onSuccess { suggestedSteps = it }.onFailure { toaster.show(it.message.orEmpty()) } }
+        else askFirstStep = true
+    }
 
     val details = d
     LargeTitleScreen(
@@ -225,6 +262,19 @@ fun TaskEditorScreen(nav: NavController, id: Long) {
                 }
             }
         }
+        if (!done && t.postponeCount >= 3 && details.subtasks.isEmpty()) {
+            item(key = "postponed") {
+                Section(modifier = Modifier.padding(bottom = 22.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Ic(R.drawable.ic_account_tree, tint = c.amber, size = 24.dp)
+                        Spacer(Modifier.width(14.dp))
+                        Text(stringResource(R.string.postponed_nudge, t.postponeCount), style = MaterialTheme.typography.bodyMedium, color = c.text, modifier = Modifier.weight(1f))
+                    }
+                    RowDivider(0.dp)
+                    ListRow(stringResource(R.string.break_it_down), titleColor = c.accent, onClick = { if (!busy) breakDown() }, chevron = false)
+                }
+            }
+        }
         item(key = "when") {
             Section(header = stringResource(R.string.section_when)) {
                 ListRow(stringResource(R.string.date), icon = R.drawable.ic_calendar_today, value = t.dueDate?.let { Fmt.day(ctx, it) } ?: stringResource(R.string.none), onClick = { pickDate = true })
@@ -273,6 +323,13 @@ fun TaskEditorScreen(nav: NavController, id: Long) {
                     RowDivider(52.dp)
                     ListRow(stringResource(R.string.reuse_reminders, reusable.size), icon = R.drawable.ic_history, titleColor = c.accent, onClick = { vm.reuse() }, chevron = false)
                 }
+                if (aiReady && t.dueDate != null) {
+                    RowDivider(52.dp)
+                    ListRow(
+                        stringResource(R.string.suggest_reminders), icon = R.drawable.ic_auto_awesome, titleColor = c.accent,
+                        value = if (busy) stringResource(R.string.thinking) else null, onClick = { if (!busy) suggest() }, chevron = false,
+                    )
+                }
             }
         }
         item(key = "steps") {
@@ -300,6 +357,11 @@ fun TaskEditorScreen(nav: NavController, id: Long) {
                         decorator = { inner -> Box { if (newStep.text.isEmpty()) Text(stringResource(R.string.add_step), style = MaterialTheme.typography.bodyLarge, color = c.accent); inner() } },
                     )
                 }
+                RowDivider(52.dp)
+                ListRow(
+                    stringResource(R.string.break_it_down), icon = R.drawable.ic_account_tree, titleColor = c.accent,
+                    value = if (busy) stringResource(R.string.thinking) else null, onClick = { if (!busy) breakDown() }, chevron = false,
+                )
             }
         }
         item(key = "notes") {
@@ -373,6 +435,25 @@ fun TaskEditorScreen(nav: NavController, id: Long) {
     }
     if (pickRepeat) RepeatSheet(t, onDismiss = { pickRepeat = false }) { r, days -> pickRepeat = false; vm.save(t.copy(repeat = r, repeatDays = days)) }
     cueSheet?.let { cue -> CueSheet(t, cue, onDismiss = { cueSheet = null }) { cueSheet = null; if (it.id == 0L) vm.addCue(it) else vm.updateCue(it) } }
+    suggestedCues?.let { cues ->
+        PickSheet(
+            title = stringResource(R.string.suggest_reminders),
+            items = cues.map { Fmt.cueWhen(ctx, it) + " · " + it.message },
+            empty = stringResource(R.string.no_suggestions),
+            onDismiss = { suggestedCues = null },
+        ) { picked -> suggestedCues = null; vm.addCues(picked.map { cues[it] }) }
+    }
+    suggestedSteps?.let { steps ->
+        PickSheet(
+            title = stringResource(R.string.break_it_down),
+            items = steps,
+            empty = stringResource(R.string.no_suggestions),
+            onDismiss = { suggestedSteps = null },
+        ) { picked -> suggestedSteps = null; vm.addSteps(picked.map { steps[it] }) }
+    }
+    if (askFirstStep) {
+        TextDialog(stringResource(R.string.first_tiny_step), "", { askFirstStep = false }) { s -> askFirstStep = false; if (s.isNotBlank()) vm.addStep(s) }
+    }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
@@ -523,3 +604,35 @@ private fun CueSheet(t: TaskEntity, initial: CueEntity, onDismiss: () -> Unit, o
     }
 }
 
+
+/** FRIDAY's language for AI suggestions: the app's current language. */
+private fun appLang(ctx: Context) = if (Fmt.locale(ctx).language == "ms") com.friday.app.ai.Lang.MS else com.friday.app.ai.Lang.EN
+
+/** Suggestions to accept or skip: everything starts ticked, one tap adds the rest. */
+@Composable
+private fun PickSheet(title: String, items: List<String>, empty: String, onDismiss: () -> Unit, onAdd: (List<Int>) -> Unit) {
+    val c = Friday.colors
+    var picked by remember(items) { mutableStateOf(items.indices.toSet()) }
+    FridaySheet(onDismiss) {
+        Column(Modifier.padding(bottom = 28.dp)) {
+            Text(title, style = MaterialTheme.typography.titleLarge, color = c.text, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
+            if (items.isEmpty()) {
+                Text(empty, style = MaterialTheme.typography.bodyLarge, color = c.textSecondary, modifier = Modifier.padding(20.dp))
+            } else {
+                Section(modifier = Modifier.padding(top = 10.dp)) {
+                    items.forEachIndexed { i, item ->
+                        if (i > 0) RowDivider(52.dp)
+                        Row(Modifier.fillMaxWidth().clickable { picked = if (i in picked) picked - i else picked + i }.padding(end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CheckCircle(i in picked, { picked = if (i in picked) picked - i else picked + i }, item)
+                            Text(item, style = MaterialTheme.typography.bodyLarge, color = c.text, modifier = Modifier.padding(vertical = 12.dp))
+                        }
+                    }
+                }
+                PrimaryButton(
+                    stringResource(R.string.add_n, picked.size), { onAdd(picked.sorted()) },
+                    Modifier.padding(horizontal = 16.dp, vertical = 16.dp).fillMaxWidth(), enabled = picked.isNotEmpty(),
+                )
+            }
+        }
+    }
+}

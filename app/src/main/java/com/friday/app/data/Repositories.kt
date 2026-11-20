@@ -140,9 +140,9 @@ class TaskRepository(
         dao.touch(taskId)
     }
 
-    suspend fun addSubtasks(taskId: Long, titles: List<String>) {
+    suspend fun addSubtasks(taskId: Long, titles: List<String>): List<Long> {
         val pos = dao.getDetails(taskId)?.subtasks?.size ?: 0
-        dao.insertSubtasks(titles.filter { it.isNotBlank() }.mapIndexed { i, s -> SubtaskEntity(taskId = taskId, title = s.trim().take(200), position = pos + i) })
+        return dao.insertSubtasks(titles.filter { it.isNotBlank() }.mapIndexed { i, s -> SubtaskEntity(taskId = taskId, title = s.trim().take(200), position = pos + i) })
     }
 
     suspend fun setSubtaskDone(s: SubtaskEntity, done: Boolean) {

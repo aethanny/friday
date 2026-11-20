@@ -46,8 +46,18 @@ CONTEXT.md is the original brief; where this file differs, this file wins.
 - Local parser first (private, offline, instant); anything it can't handle goes to the optional online AI.
 - New tasks, reminders and notes are created immediately with Undo. Changing or completing existing
   tasks needs one tap to confirm. FRIDAY can never delete.
-- Online AI: one OpenAI-compatible connection, default Google Gemini (free tier), key stored
-  encrypted with Android Keystore. Only your message plus related task titles and times are sent.
+- Online AI: one OpenAI-compatible connection, default Google Gemini (free tier) with the
+  `gemini-flash-latest` alias so it never points at a retired model; "Pick from the service" lists
+  the server's models. Key stored encrypted with Android Keystore. Sent: the message, recent chat and
+  the titles/times of open tasks; never notes. Every AI action is validated (known task ids, sane
+  dates/times, max 5 actions); unknown action types, including any kind of delete, are dropped.
+- AI extras: "Suggest reminders" and "Break it down" in a task (you tick what to keep).
+  Offline, "Break it down" asks for the very first tiny step. Tasks postponed 3+ times show a nudge.
+- Voice: in-app listening (microphone permission asked on first use, with an explanation).
+  Spoken questions get spoken answers; typed ones only if "Read typed replies aloud" is on.
+  FRIDAY keeps listening only when its reply is a question, like Siri. ElevenLabs
+  (`eleven_flash_v2_5`, Malay-capable, first voice on the account by default) with the phone's
+  own text-to-speech as fallback. FRIDAY can be chosen as the phone's digital assistant app.
 
 ## Data and safety
 - Everything stays on the phone (Room + DataStore) and in Android's encrypted backup.

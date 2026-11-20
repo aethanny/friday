@@ -1,5 +1,21 @@
 package com.friday.app.ui.screens
 
+import com.friday.app.ui.components.PrimaryButton
+import com.friday.app.ui.components.FridaySheet
+import com.friday.app.ui.components.BarIcon
+import com.friday.app.voice.Listener
+import com.friday.app.data.SecretStore
+import com.friday.app.ai.EngineResult
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.MutableSharedFlow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.core.content.ContextCompat
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
+import android.content.pm.PackageManager
+import android.Manifest
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.animation.core.RepeatMode
@@ -92,19 +108,77 @@ data class MsgMeta(
     val proposalLabel: String? = null,
     val undoTask: Long? = null,
     val undoNote: Long? = null,
+    val proposalMinutes: Int = 0,
+    val proposalPayload: String = "",
 )
+
+enum class VoiceState { IDLE, LISTENING, SPEAKING }
 
 private val json = Json { ignoreUnknownKeys = true }
 
 class AssistantViewModel(private val c: AppContainer) : ViewModel() {
     val messages: StateFlow<List<MessageEntity>> = c.db.messages().observeRecent().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val thinking = MutableStateFlow(false)
-    val online: StateFlow<Boolean> = c.settings.flow.map { c.remote != null && it.aiEnabled }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val online: StateFlow<Boolean> = combine(c.settings.flow, c.secrets.version) { s, _ -> s.aiEnabled && c.secrets.has(SecretStore.AI_KEY) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val navigate = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val voice = MutableStateFlow(VoiceState.IDLE)
+    val heard = MutableStateFlow("")
+    val level = MutableStateFlow(0f)
+    private val listener = Listener(c.context)
+    private var conversation = false
+    private var languageTag = "en-US"
     private val sessionUndo = mutableMapOf<Long, Undo>()
+
+    fun canListen() = listener.available()
+
+    fun startVoice(tag: String) {
+        languageTag = tag
+        conversation = true
+        c.speaker.stop()
+        listen()
+    }
+
+    private fun listen() {
+        heard.value = ""
+        voice.value = VoiceState.LISTENING
+        listener.start(languageTag) { e ->
+            when (e) {
+                is Listener.Event.Partial -> heard.value = e.text
+                is Listener.Event.Level -> level.value = e.rms
+                is Listener.Event.Final -> { heard.value = e.text; voice.value = VoiceState.IDLE; send(e.text, spoken = true) }
+                Listener.Event.Nothing, is Listener.Event.Failed -> { conversation = false; voice.value = VoiceState.IDLE }
+            }
+        }
+    }
+
+    fun stopVoice() {
+        conversation = false
+        listener.stop()
+        c.speaker.stop()
+        voice.value = VoiceState.IDLE
+    }
+
+    override fun onCleared() {
+        listener.stop()
+        c.speaker.stop()
+    }
+
+    private suspend fun afterReply(r: EngineResult, spoken: Boolean) {
+        r.focusTaskId?.let { navigate.tryEmit("focus/$it" + (r.focusMinutes?.let { m -> "?min=$m" } ?: "")) }
+        val s = c.settings.current()
+        if (r.text.isNotBlank() && (spoken || s.readAloud)) {
+            voice.value = VoiceState.SPEAKING
+            c.speaker.speak(r.text, r.lang)
+            if (voice.value == VoiceState.SPEAKING) voice.value = VoiceState.IDLE
+        }
+        // Like Siri: keep listening only when FRIDAY asked something back.
+        if (spoken && conversation && s.voiceConversation && r.text.trimEnd().endsWith("?")) listen() else if (spoken) conversation = false
+    }
 
     fun meta(m: MessageEntity): MsgMeta? = m.actionJson?.let { runCatching { json.decodeFromString(MsgMeta.serializer(), it) }.getOrNull() }
 
-    fun send(text: String) = viewModelScope.launch {
+    fun send(text: String, spoken: Boolean = false) = viewModelScope.launch {
         if (text.isBlank()) return@launch
         val dao = c.db.messages()
         dao.insert(MessageEntity(fromUser = true, text = text.trim()))
@@ -119,6 +193,8 @@ class AssistantViewModel(private val c: AppContainer) : ViewModel() {
             proposalLabel = r.proposal?.label,
             undoTask = (r.undo as? Undo.DeleteTask)?.id,
             undoNote = (r.undo as? Undo.DeleteNote)?.id,
+            proposalMinutes = r.proposal?.minutes ?: 0,
+            proposalPayload = r.proposal?.payload.orEmpty(),
         )
         val id = dao.insert(
             MessageEntity(
@@ -131,6 +207,7 @@ class AssistantViewModel(private val c: AppContainer) : ViewModel() {
             ),
         )
         r.undo?.let { sessionUndo[id] = it }
+        afterReply(r, spoken)
     }
 
     fun undo(m: MessageEntity) = viewModelScope.launch {
@@ -143,7 +220,7 @@ class AssistantViewModel(private val c: AppContainer) : ViewModel() {
     fun confirm(m: MessageEntity) = viewModelScope.launch {
         val meta = meta(m) ?: return@launch
         val kind = meta.proposal?.let { runCatching { ProposalKind.valueOf(it) }.getOrNull() } ?: return@launch
-        val undo = c.assistant.confirm(Proposal(kind, meta.proposalTask ?: return@launch, meta.proposalLabel.orEmpty()))
+        val undo = c.assistant.confirm(Proposal(kind, meta.proposalTask ?: return@launch, meta.proposalLabel.orEmpty(), meta.proposalMinutes, meta.proposalPayload))
         undo?.let { sessionUndo[m.id] = it }
         c.db.messages().update(m.copy(actionState = ActionState.APPLIED))
     }
@@ -165,8 +242,24 @@ fun AssistantScreen(nav: NavController, listen: Boolean) {
     val tabBar = LocalTabBarHeight.current
     val input = rememberTextFieldState()
     val list = rememberLazyListState()
+    val voice by vm.voice.collectAsStateWithLifecycle()
+    val heard by vm.heard.collectAsStateWithLifecycle()
+    val level by vm.level.collectAsStateWithLifecycle()
+    val ctx = LocalContext.current
     val dictate = rememberDictation { vm.send(it) }
-    LaunchedEffect(listen) { if (listen) dictate?.invoke() }
+    var askMic by remember { mutableStateOf(false) }
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) vm.startVoice(speechLocaleTag(ctx)) else dictate?.invoke()
+    }
+    val talk: () -> Unit = {
+        when {
+            !vm.canListen() -> dictate?.invoke()
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> vm.startVoice(speechLocaleTag(ctx))
+            else -> askMic = true
+        }
+    }
+    LaunchedEffect(listen) { if (listen) talk() }
+    LaunchedEffect(Unit) { vm.navigate.collect { nav.navigate(it) } }
     LaunchedEffect(messages.size, thinking) { if (messages.isNotEmpty()) list.animateScrollToItem(messages.size + 1) }
 
     val continueChip = stringResource(R.string.chip_continue_focus)
@@ -207,13 +300,32 @@ fun AssistantScreen(nav: NavController, listen: Boolean) {
             if (thinking) item(key = "typing") { Typing() }
             item(key = "end") { Spacer(Modifier.height(4.dp)) }
         }
-        CaptureBar(
-            state = input,
-            onSubmit = { vm.send(input.text.toString()); input.clearText() },
-            placeholder = stringResource(R.string.ask_friday),
-            onMic = dictate,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-        )
+        if (voice == VoiceState.IDLE) {
+            CaptureBar(
+                state = input,
+                onSubmit = { vm.send(input.text.toString()); input.clearText() },
+                placeholder = stringResource(R.string.ask_friday),
+                onMic = if (vm.canListen() || dictate != null) talk else null,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        } else {
+            VoicePanel(voice, heard, level, onStop = vm::stopVoice)
+        }
+    }
+
+    if (askMic) {
+        FridaySheet(onDismiss = { askMic = false }) {
+            Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 28.dp)) {
+                FridayMark(56)
+                Spacer(Modifier.height(18.dp))
+                Text(stringResource(R.string.mic_title), style = MaterialTheme.typography.headlineSmall, color = c.text)
+                Spacer(Modifier.height(8.dp))
+                Text(stringResource(R.string.mic_body), style = MaterialTheme.typography.bodyLarge, color = c.textSecondary)
+                Spacer(Modifier.height(24.dp))
+                PrimaryButton(stringResource(R.string.mic_allow), { askMic = false; micPermission.launch(Manifest.permission.RECORD_AUDIO) }, Modifier.fillMaxWidth(), icon = R.drawable.ic_mic)
+                TextAction(stringResource(R.string.not_now), { askMic = false }, color = c.textSecondary, modifier = Modifier.align(Alignment.CenterHorizontally))
+            }
+        }
     }
 }
 
@@ -290,3 +402,44 @@ private fun Typing() {
     }
 }
 
+
+/** Replaces the text field while FRIDAY listens or speaks. The orb grows with your voice. */
+@Composable
+private fun VoicePanel(state: VoiceState, heard: String, level: Float, onStop: () -> Unit) {
+    val c = Friday.colors
+    val target = when (state) {
+        VoiceState.LISTENING -> 1f + ((level + 2f) / 12f).coerceIn(0f, 0.45f)
+        VoiceState.SPEAKING -> 1.15f
+        VoiceState.IDLE -> 1f
+    }
+    val scale by animateFloatAsState(if (Friday.reduceMotion) 1f else target, spring(dampingRatio = 0.5f, stiffness = 300f), label = "orb")
+    Row(
+        Modifier
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(26.dp))
+            .background(c.surface)
+            .padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(44.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(CircleShape).background(c.accentSoft))
+            Box(Modifier.size(16.dp).clip(CircleShape).background(c.accent))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                stringResource(if (state == VoiceState.SPEAKING) R.string.voice_speaking else R.string.voice_listening),
+                style = MaterialTheme.typography.labelMedium,
+                color = c.accent,
+            )
+            Text(
+                heard.ifBlank { stringResource(R.string.voice_hint) },
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (heard.isBlank()) c.textTertiary else c.text,
+                maxLines = 3,
+            )
+        }
+        BarIcon(R.drawable.ic_stop_circle, stringResource(R.string.stop), onStop, tint = c.red)
+    }
+}

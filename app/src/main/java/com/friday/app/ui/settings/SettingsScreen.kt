@@ -1,5 +1,6 @@
 package com.friday.app.ui.settings
 
+import com.friday.app.data.SecretStore
 import androidx.compose.foundation.clickable
 import android.app.LocaleManager
 import android.content.Context
@@ -216,6 +217,16 @@ fun SettingsScreen(nav: NavController) {
                 )
             }
         }
+        item(key = "assistant") {
+            val keys by vm.c.secrets.version.collectAsStateWithLifecycle()
+            val aiOn = remember(keys) { vm.c.secrets.has(SecretStore.AI_KEY) } && st.aiEnabled
+            val eleven = remember(keys) { vm.c.secrets.has(SecretStore.ELEVEN_KEY) }
+            Section(header = stringResource(R.string.set_assistant), modifier = Modifier.padding(top = 22.dp)) {
+                ListRow(stringResource(R.string.ai_title), icon = R.drawable.ic_auto_awesome, iconBackground = c.accent, value = stringResource(if (aiOn) R.string.on else R.string.off), onClick = { nav.navigate("settings/ai") })
+                RowDivider(60.dp)
+                ListRow(stringResource(R.string.voice_title), icon = R.drawable.ic_graphic_eq, iconBackground = c.accent, value = if (eleven) "ElevenLabs" else stringResource(R.string.voice_phone), onClick = { nav.navigate("settings/voice") })
+            }
+        }
         item(key = "privacy") {
             Section(header = stringResource(R.string.set_privacy), footer = stringResource(R.string.privacy_text), modifier = Modifier.padding(top = 22.dp)) {
                 ListRow(stringResource(R.string.clear_chat), icon = R.drawable.ic_delete, iconBackground = c.textTertiary, onClick = { dialog = "clearChat" }, chevron = false)
@@ -231,7 +242,7 @@ fun SettingsScreen(nav: NavController) {
     }
 
     when (dialog) {
-        "name" -> TextDialog(stringResource(R.string.set_name), st.name, { dialog = null }) { v -> dialog = null; vm.set { setName(v) } }
+        "name" -> TextDialog(stringResource(R.string.set_name), st.name, { dialog = null }, capitalization = KeyboardCapitalization.Words) { v -> dialog = null; vm.set { setName(v) } }
         "language" -> OptionSheet(
             stringResource(R.string.set_language),
             listOf(stringResource(R.string.theme_system) to "", "English" to "en", "Bahasa Melayu" to "ms"),
@@ -268,7 +279,14 @@ fun ConfirmDialog(title: String, body: String, confirm: String, onDismiss: () ->
 }
 
 @Composable
-fun TextDialog(title: String, initial: String, onDismiss: () -> Unit, secret: Boolean = false, onSave: (String) -> Unit) {
+fun TextDialog(
+    title: String,
+    initial: String,
+    onDismiss: () -> Unit,
+    secret: Boolean = false,
+    capitalization: KeyboardCapitalization = KeyboardCapitalization.Sentences,
+    onSave: (String) -> Unit,
+) {
     val c = Friday.colors
     var v by remember { mutableStateOf(initial) }
     AlertDialog(
@@ -281,7 +299,7 @@ fun TextDialog(title: String, initial: String, onDismiss: () -> Unit, secret: Bo
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.fill).padding(12.dp),
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = c.text),
                 cursorBrush = SolidColor(c.accent),
-                keyboardOptions = KeyboardOptions(capitalization = if (secret) KeyboardCapitalization.None else KeyboardCapitalization.Words),
+                keyboardOptions = KeyboardOptions(capitalization = if (secret) KeyboardCapitalization.None else capitalization),
                 visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
             )
         },

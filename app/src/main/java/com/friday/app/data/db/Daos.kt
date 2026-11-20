@@ -55,7 +55,10 @@ interface TaskDao {
     suspend fun touch(id: Long, at: Long = System.currentTimeMillis())
 
     @Insert suspend fun insertSubtask(s: SubtaskEntity): Long
-    @Insert suspend fun insertSubtasks(s: List<SubtaskEntity>)
+    @Insert suspend fun insertSubtasks(s: List<SubtaskEntity>): List<Long>
+
+    @Query("DELETE FROM subtasks WHERE id IN (:ids)")
+    suspend fun deleteSubtasks(ids: List<Long>)
     @Update suspend fun updateSubtask(s: SubtaskEntity)
     @Delete suspend fun deleteSubtask(s: SubtaskEntity)
 

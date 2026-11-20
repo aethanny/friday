@@ -19,6 +19,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
+    <!-- Talking to FRIDAY: asked the first time you tap the microphone in the assistant -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <!-- Optional online AI and natural voice -->
     <uses-permission android:name="android.permission.INTERNET" />
 

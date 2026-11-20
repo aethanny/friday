@@ -4,7 +4,11 @@ import android.app.Application
 import android.content.Context
 import com.friday.app.ai.AssistantEngine
 import com.friday.app.ai.CommandParser
-import com.friday.app.ai.RemoteAssistant
+import com.friday.app.ai.OnlineAssistant
+import com.friday.app.ai.OpenAiCompatClient
+import com.friday.app.voice.Speaker
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import com.friday.app.data.NoteRepository
 import com.friday.app.data.SecretStore
 import com.friday.app.data.SettingsStore
@@ -34,14 +38,10 @@ class AppContainer(val context: Context, inMemoryDb: Boolean = false) {
     val briefing = Briefing(context, settings, tasks, notifier)
     val focus = FocusController(context, db, notifier, scheduler)
     val parser = CommandParser()
-    var remote: RemoteAssistant? = null
-    val assistant by lazy { AssistantEngine(context, db, tasks, notes, parser, RemoteProxy()) }
-
-    /** Lets the remote AI be switched on and off at runtime without rebuilding the engine. */
-    private inner class RemoteProxy : RemoteAssistant {
-        override suspend fun respond(text: String, lang: com.friday.app.ai.Lang) = remote?.respond(text, lang)
-        override suspend fun applyConfirmed(p: com.friday.app.ai.Proposal) = remote?.applyConfirmed(p)
-    }
+    val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
+    val ai = OnlineAssistant(context, db, settings, secrets, tasks, notes, reminders, OpenAiCompatClient(http))
+    val assistant = AssistantEngine(context, db, tasks, notes, parser, ai)
+    val speaker = Speaker(context, settings, secrets, http)
 }
 
 class FridayApp : Application() {

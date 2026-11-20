@@ -9,6 +9,7 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * API keys encrypted with an AES key that never leaves the Android Keystore. Fine for a personal
@@ -17,6 +18,9 @@ import javax.crypto.spec.GCMParameterSpec
  */
 class SecretStore(context: Context) {
     private val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+
+    /** Bumped on every change so screens can react when a key is added or removed. */
+    val version = MutableStateFlow(0)
 
     private fun key(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -32,10 +36,14 @@ class SecretStore(context: Context) {
     }
 
     fun put(name: String, value: String?) {
-        if (value.isNullOrBlank()) { prefs.edit().remove(name).apply(); return }
-        val cipher = Cipher.getInstance(TRANSFORM).apply { init(Cipher.ENCRYPT_MODE, key()) }
-        val data = cipher.iv + cipher.doFinal(value.trim().toByteArray())
-        prefs.edit().putString(name, Base64.encodeToString(data, Base64.NO_WRAP)).apply()
+        if (value.isNullOrBlank()) {
+            prefs.edit().remove(name).apply()
+        } else {
+            val cipher = Cipher.getInstance(TRANSFORM).apply { init(Cipher.ENCRYPT_MODE, key()) }
+            val data = cipher.iv + cipher.doFinal(value.trim().toByteArray())
+            prefs.edit().putString(name, Base64.encodeToString(data, Base64.NO_WRAP)).apply()
+        }
+        version.value++
     }
 
     fun get(name: String): String? {
@@ -49,7 +57,10 @@ class SecretStore(context: Context) {
 
     fun has(name: String) = prefs.contains(name)
 
-    fun clear() = prefs.edit().clear().apply()
+    fun clear() {
+        prefs.edit().clear().apply()
+        version.value++
+    }
 
     companion object {
         const val FILE = "secrets"

@@ -24,10 +24,12 @@ sealed interface Undo {
     data class DeleteTask(val id: Long) : Undo
     data class DeleteNote(val id: Long) : Undo
     data class Restore(val snapshot: TaskSnapshot) : Undo
+    data class DeleteSteps(val ids: List<Long>) : Undo
+    data class Many(val items: List<Undo>) : Undo
 }
 
 /** Something FRIDAY wants to change in existing data; the user confirms with one tap. */
-data class Proposal(val kind: ProposalKind, val taskId: Long, val label: String, val minutes: Int = 0)
+data class Proposal(val kind: ProposalKind, val taskId: Long, val label: String, val minutes: Int = 0, val payload: String = "")
 enum class ProposalKind { COMPLETE_TASK, UPDATE_TASK, SNOOZE_REMINDER }
 
 data class EngineResult(
@@ -41,6 +43,8 @@ data class EngineResult(
     val focusMinutes: Int? = null,
     val remote: Boolean = false,
     val lang: Lang = Lang.EN,
+    /** The online AI could not answer; [text] says why. */
+    val failed: Boolean = false,
 )
 
 fun Context.inLang(lang: Lang): Context {
@@ -118,9 +122,15 @@ class AssistantEngine(
                     val id = notes.add(text)
                     EngineResult(r.getString(R.string.saved_inbox), undo = Undo.DeleteNote(id), lang = lang)
                 }
-                Source.CHAT -> remote?.respond(text, lang) ?: run {
-                    lastUnhandled = text
-                    EngineResult(r.getString(R.string.offline_fallback), chips = listOf(r.getString(R.string.chip_save_inbox)), lang = lang)
+                Source.CHAT -> {
+                    val online = remote?.respond(text, lang)
+                    if (online != null && !online.failed) online
+                    else {
+                        lastUnhandled = text
+                        val fallback = r.getString(R.string.offline_fallback)
+                        // When the online AI was tried and failed, say why before the offline answer.
+                        EngineResult(online?.let { it.text + "\n\n" + fallback } ?: fallback, chips = listOf(r.getString(R.string.chip_save_inbox)), lang = lang)
+                    }
                 }
             }
         }
@@ -180,6 +190,8 @@ class AssistantEngine(
             is Undo.DeleteTask -> tasks.delete(u.id)
             is Undo.DeleteNote -> db.notes().get(u.id)?.let { notes.delete(it) }
             is Undo.Restore -> tasks.restore(u.snapshot)
+            is Undo.DeleteSteps -> db.tasks().deleteSubtasks(u.ids)
+            is Undo.Many -> u.items.asReversed().forEach { undo(it) }
         }
     }
 

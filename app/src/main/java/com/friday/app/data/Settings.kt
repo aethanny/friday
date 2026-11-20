@@ -39,8 +39,10 @@ data class AppSettings(
 ) {
     companion object {
         const val DEFAULT_AI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-        const val DEFAULT_AI_MODEL = "gemini-2.5-flash"
-        const val DEFAULT_ELEVEN_VOICE = "21m00Tcm4TlvDq8ikWAM"
+        /** Google's alias for its newest Flash model, so FRIDAY never points at a retired one. */
+        const val DEFAULT_AI_MODEL = "gemini-flash-latest"
+        /** Empty: the first voice on the user's ElevenLabs account is picked on first use. */
+        const val DEFAULT_ELEVEN_VOICE = ""
     }
 }
 
