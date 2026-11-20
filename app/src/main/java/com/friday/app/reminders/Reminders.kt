@@ -24,6 +24,8 @@ import com.friday.app.domain.FocusMath
 import com.friday.app.domain.Habits
 import com.friday.app.domain.Matrix
 import com.friday.app.domain.QuietHours
+import com.friday.app.domain.ReminderWhy
+import com.friday.app.domain.Why
 import com.friday.app.domain.Schedule
 import com.friday.app.location.PlaceManager
 import com.friday.app.ui.Fmt
@@ -151,10 +153,16 @@ class ReminderEngine(
         val s = settings.current()
         notifier.postReminder(
             task, cue, channelFor(cue, s, now), followUp = false,
-            body = Fmt.cueMessage(ctx, task, cue), second = secondActionFor(task, now), bundle = notifier.shouldBundle(cue.id),
+            body = Fmt.reminderBody(ctx, task, cue, whyFor(task, cue, now), trigger?.let(Schedule::key)), second = secondActionFor(task, now), bundle = notifier.shouldBundle(cue.id),
         )
         dao.updateCue(cue.copy(firedKey = key, firedAt = now, snoozedUntil = null, ackKey = null, held = false))
         if (s.followUp) scheduler.setFollowUp(cue.id, followUpAt(now, s))
+    }
+
+    private suspend fun whyFor(task: TaskEntity, cue: CueEntity, now: Long): Why? {
+        val details = dao.getDetails(task.id) ?: return null
+        val others = tasks.openTasks().map { it.task }.filter { it.id != task.id }
+        return ReminderWhy.pick(details, cue, others, LocalDateTime.ofInstant(Instant.ofEpochMilli(now), ZoneId.systemDefault()))
     }
 
     private suspend fun secondActionFor(task: TaskEntity, now: Long): SecondAction {

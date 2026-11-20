@@ -241,7 +241,9 @@
     <string name="ch_briefing_desc">Your morning overview</string>
     <string name="mark_done">Mark done</string>
     <string name="got_it">Got it</string>
-    <string name="snooze_n">Snooze %1$s</string>
+    <string name="why_postponed">Moved %1$d times. Just 5 minutes counts.</string>
+    <string name="why_first_step">First step: %1$s</string>
+    <string name="why_next">Next: %1$s at %2$s</string>
     <plurals name="bundle_title">
         <item quantity="one">%d thing now</item>
         <item quantity="other">%d things now</item>

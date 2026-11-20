@@ -58,9 +58,11 @@ class FridayApp : Application() {
         super.onCreate()
         container = AppContainer(this)
         container.notifier.createChannels()
+        container.tasks.onSaved = { container.scope.launch { container.ai.prepareLines() } }
         container.scope.launch {
             container.scheduler.syncAll(fireMissed = false)
             container.briefing.schedule()
+            container.ai.prepareLines()
         }
     }
 }

@@ -18,6 +18,7 @@ import com.friday.app.data.db.TaskEntity
 import com.friday.app.data.db.TaskWithDetails
 import com.friday.app.domain.FocusMath
 import com.friday.app.domain.Matrix
+import com.friday.app.domain.Schedule
 import com.friday.app.reminders.ReminderEngine
 import com.friday.app.ui.Fmt
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -129,6 +131,12 @@ data class AiCue(val `when`: String = "", val minutes: Int = 0, val time: String
 private data class AiCues(val cues: List<AiCue> = emptyList())
 
 @Serializable
+private data class AiLine(val cueId: Long = 0, val text: String = "")
+
+@Serializable
+private data class AiLines(val lines: List<AiLine> = emptyList())
+
+@Serializable
 private data class AiSteps(val steps: List<String> = emptyList())
 
 /** The only changes the AI may ask for, after validation. Anything else is dropped. */
@@ -158,6 +166,13 @@ object AiActions {
     fun parseCues(raw: String): List<AiCue> = runCatching {
         json.decodeFromString(AiCues.serializer(), raw.substring(raw.indexOf('{'), raw.lastIndexOf('}') + 1)).cues
     }.getOrDefault(emptyList())
+
+    /** Only requested cue ids, trimmed to 90 chars, non-blank. */
+    fun parseLines(raw: String, requestedIds: Set<Long>): Map<Long, String> = runCatching {
+        json.decodeFromString(AiLines.serializer(), raw.substring(raw.indexOf('{'), raw.lastIndexOf('}') + 1)).lines
+            .filter { it.cueId in requestedIds }
+            .mapNotNull { l -> clean(l.text, 90)?.let { l.cueId to it } }.toMap()
+    }.getOrDefault(emptyMap())
 
     fun parseSteps(raw: String): List<String> = runCatching {
         json.decodeFromString(AiSteps.serializer(), raw.substring(raw.indexOf('{'), raw.lastIndexOf('}') + 1)).steps
@@ -365,6 +380,41 @@ class OnlineAssistant(
             Write the steps in ${language(lang)}, max 8 words each. Respond only with JSON: {"steps":["...", "..."]}
         """.trimIndent()
         return AiActions.parseSteps(ask(listOf("user" to prompt))).mapNotNull { it.trim().take(120).takeIf(String::isNotBlank) }.take(6)
+    }
+
+    /** Fire-and-forget: writes warm one-line texts for cues due in the next 24 h. Never throws. */
+    suspend fun prepareLines(now: LocalDateTime = this.now()) {
+        try {
+            if (!available()) return
+            val due = tasks.openTasks().flatMap { d ->
+                d.cues.mapNotNull { c ->
+                    val at = Schedule.trigger(d.task, c) ?: return@mapNotNull null
+                    if (at.isBefore(now) || at.isAfter(now.plusHours(24)) || c.smartKey == Schedule.key(at)) null else Triple(d.task, c, at)
+                }
+            }.sortedBy { it.third }.take(20)
+            if (due.isEmpty()) return
+            val ms = ctx.resources.configuration.locales[0].language == "ms"
+            val system = """
+                What you know about the user:
+                ${memory.all().joinToString("\n") { "- ${it.text}" }.ifBlank { "(nothing yet)" }}
+                Write one reminder line per item, ≤ 90 characters, warm, specific, says why it matters now, no shame, no emojis. Write in ${language(if (ms) Lang.MS else Lang.EN)}.
+                Respond ONLY with JSON: {"lines":[{"cueId":n,"text":"..."}]}
+            """.trimIndent()
+            val items = buildJsonArray {
+                due.forEach { (t, c, at) ->
+                    addJsonObject {
+                        put("cueId", c.id); put("task", t.title); put("kind", c.kind.name); put("at", at.toString())
+                        put("postponedTimes", t.postponeCount); put("important", t.important)
+                    }
+                }
+            }
+            val lines = AiActions.parseLines(ask(listOf("system" to system, "user" to items.toString())), due.map { it.second.id }.toSet())
+            due.forEach { (_, c, at) -> lines[c.id]?.let { db.tasks().setSmart(c.id, it, Schedule.key(at)) } }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // AiException, offline, bad reply: the offline text is used instead.
+        }
     }
 
     private fun language(lang: Lang) = if (lang == Lang.MS) "Malay (Bahasa Melayu)" else "English"

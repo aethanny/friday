@@ -226,7 +226,9 @@
     <string name="ch_briefing_desc">Gambaran pagi anda</string>
     <string name="mark_done">Tanda selesai</string>
     <string name="got_it">Faham</string>
-    <string name="snooze_n">Tunda %1$s</string>
+    <string name="why_postponed">Dah dialih %1$d kali. 5 minit pun dah kira.</string>
+    <string name="why_first_step">Langkah pertama: %1$s</string>
+    <string name="why_next">Seterusnya: %1$s pukul %2$s</string>
     <plurals name="bundle_title">
         <item quantity="other">%d perkara sekarang</item>
     </plurals>

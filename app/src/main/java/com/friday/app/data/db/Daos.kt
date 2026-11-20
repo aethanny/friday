@@ -68,6 +68,10 @@ interface TaskDao {
     @Insert suspend fun insertCue(c: CueEntity): Long
     @Insert suspend fun insertCues(c: List<CueEntity>): List<Long>
     @Update suspend fun updateCue(c: CueEntity)
+
+    /** Targeted so a background AI write can never overwrite fired/snooze state. */
+    @Query("UPDATE cues SET smartText = :text, smartKey = :key WHERE id = :id")
+    suspend fun setSmart(id: Long, text: String, key: Long)
     @Delete suspend fun deleteCue(c: CueEntity)
 
     @Query("SELECT * FROM cues WHERE id = :id")

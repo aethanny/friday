@@ -492,6 +492,17 @@ class DeviceTests {
         assertFalse(showing(NotificationIds.BUNDLE))
     }
 
+    @Test fun staleSmartTextNotUsed() {
+        val t = TaskEntity(id = 1_000_100, title = "Essay")
+        val cue = com.friday.app.data.db.CueEntity(taskId = t.id, kind = CueKind.END, anchor = com.friday.app.data.db.CueAnchor.END, smartText = "AI line", smartKey = 111L)
+        assertEquals("AI line", com.friday.app.ui.Fmt.reminderBody(ctx, t, cue, null, 111L))
+        val offline = com.friday.app.ui.Fmt.cueMessage(ctx, t, cue)
+        assertEquals(offline, com.friday.app.ui.Fmt.reminderBody(ctx, t, cue, null, 222L))
+        assertEquals(offline, com.friday.app.ui.Fmt.reminderBody(ctx, t, cue, null, null))
+        val body = com.friday.app.ui.Fmt.reminderBody(ctx, t, cue.copy(smartKey = null), com.friday.app.domain.Why.FirstStep("x".repeat(300)), 222L)
+        assertTrue(body.length <= 140 && body.startsWith(offline + "\n"))
+    }
+
     private fun alarm(cueId: Long): PendingIntent? = PendingIntent.getBroadcast(
         ctx, cueId.toInt(),
         Intent(ctx, ReminderReceiver::class.java).setAction(ReminderReceiver.ACTION_FIRE).putExtra(Extras.CUE_ID, cueId),

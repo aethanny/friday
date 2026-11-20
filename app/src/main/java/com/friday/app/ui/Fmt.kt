@@ -10,6 +10,7 @@ import com.friday.app.data.db.Repeat
 import com.friday.app.data.db.TaskEntity
 import com.friday.app.domain.Matrix
 import com.friday.app.domain.Schedule
+import com.friday.app.domain.Why
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -100,6 +101,21 @@ object Fmt {
                 else -> ctx.getString(R.string.cue_msg_custom)
             }
         }
+    }
+
+    /** Notification body: the AI line if it was written for this very occurrence, else the offline text plus an optional why-line; max 140 chars. */
+    fun reminderBody(ctx: Context, t: TaskEntity, c: CueEntity, why: Why?, occurrenceKey: Long?): String {
+        if (occurrenceKey != null && c.smartKey == occurrenceKey && !c.smartText.isNullOrBlank()) return c.smartText.take(140)
+        val base = cueMessage(ctx, t, c)
+        val line = when (why) {
+            is Why.Postponed -> ctx.getString(R.string.why_postponed, why.times)
+            is Why.FirstStep -> ctx.getString(R.string.why_first_step, why.step)
+            is Why.Next -> ctx.getString(R.string.why_next, why.title, time(ctx, why.at))
+            null -> return base.take(140)
+        }
+        val room = 140 - base.length - 1
+        if (room < 2) return base.take(140)
+        return base + "\n" + if (line.length <= room) line else line.take(room - 1) + "…"
     }
 
     fun greeting(ctx: Context, hour: Int, name: String): String {

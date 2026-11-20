@@ -102,6 +102,15 @@ class OnlineAiTest {
         assertNull(AiActions.validate(AiAction(type = "REMEMBER", text = "  "), emptySet(), today))
     }
 
+    @Test fun prepareLinesIgnoresUnknownIdsAndTrims() {
+        val long = "x".repeat(200)
+        val raw = "Sure {\"lines\":[{\"cueId\":1,\"text\":\"  Short and warm  \"},{\"cueId\":99,\"text\":\"no\"},{\"cueId\":2,\"text\":\"$long\"},{\"cueId\":3,\"text\":\"   \"}]}"
+        val m = AiActions.parseLines(raw, setOf(1L, 2L, 3L))
+        assertEquals(setOf(1L, 2L), m.keys)
+        assertEquals("Short and warm", m[1L])
+        assertEquals(90, m[2L]!!.length)
+    }
+
     @Test fun thinkIsParsedButNotReply() {
         val r = AiActions.parse("""{"think":"user is tired","reply":"Rest first.","actions":[]}""")!!
         assertEquals("Rest first.", r.reply)

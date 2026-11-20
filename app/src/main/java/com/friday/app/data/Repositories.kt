@@ -35,6 +35,9 @@ class TaskRepository(
     suspend fun details(id: Long) = dao.getDetails(id)
     suspend fun openTasks() = dao.openTasks()
 
+    /** Called after every save (the app uses it to prepare AI reminder lines). */
+    var onSaved: (Long) -> Unit = {}
+
     /** Creates or updates a task, keeps its automatic reminders in step with its schedule and re-arms alarms. */
     suspend fun save(task: TaskEntity, keepMonthlyAnchor: Boolean = false): Long {
         val s = settings.current()
@@ -63,6 +66,7 @@ class TaskRepository(
         val scheduleChanged = old == null || old.dueDate != saved.dueDate || old.dueTime != saved.dueTime || old.durationMin != saved.durationMin
         syncAutoCues(saved, s, scheduleChanged)
         scheduler.syncTask(id)
+        onSaved(id)
         return id
     }
 
