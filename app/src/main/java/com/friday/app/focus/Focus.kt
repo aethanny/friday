@@ -25,6 +25,9 @@ class FocusController(
     private val db: FridayDatabase,
     private val notifier: Notifier,
     private val scheduler: ReminderScheduler,
+    /** Runs once the session stops silencing reminders (ended or time up): releases the ones held back. */
+    private val onEnded: suspend () -> Unit = {},
+    // Last so callers can keep passing the clock as a trailing lambda.
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val dao = db.focus()
@@ -84,6 +87,7 @@ class FocusController(
         e.taskId?.let { db.tasks().touch(it) }
         stopSideEffects()
         notifier.cancelFocusDone()
+        onEnded()
         return e
     }
 
@@ -104,6 +108,7 @@ class FocusController(
         if (FocusMath.remainingMs(s, now()) > 5_000) { armEnd(s); return }
         stopSideEffects()
         notifier.focusDone(s)
+        onEnded()
     }
 
     suspend fun restoreAfterRestart() {

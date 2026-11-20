@@ -227,6 +227,9 @@
     <string name="mark_done">Tanda selesai</string>
     <string name="got_it">Faham</string>
     <string name="snooze_n">Tunda %1$s</string>
+    <plurals name="bundle_title">
+        <item quantity="other">%d perkara sekarang</item>
+    </plurals>
     <string name="snooze_more">Tunda…</string>
     <string name="snooze_title">Tunda sehingga</string>
     <string name="follow_up_subtext">Peringatan sekali lagi</string>

@@ -85,3 +85,9 @@ CONTEXT.md is the original brief; where this file differs, this file wins.
 - B3: completing a repeating task resets its postpone count, so one old postponement no longer marks every future occurrence as postponed.
 - B4: the AI action type is trimmed once before every check, so " CREATE_REMINDER" without a time is rejected.
 - B5: deleting a task with a place reminder (including undoing a creation) unregisters its geofence right away.
+
+## v1.1 smart timing
+- Reminders for other tasks are held (not delivered quietly) while a focus session runs, and arrive when it ends or its time is up. Important + urgent tasks still come through. The hold alarm at the session's end is kept as a backup.
+- "Get ready" and "Start" reminders are skipped when the task is being focused on or was touched in the last 30 min. Tapping "Got it" (or opening the app from a reminder) no longer counts as touching the task, so acknowledging "get ready" doesn't make the start reminder skip.
+- Reminders arriving within 2 min of another one still on screen are posted silently and grouped under one summary ("3 things now").
+- Reminders have two buttons: the main action and "Snooze…" (the fixed "Snooze N min" button is gone).

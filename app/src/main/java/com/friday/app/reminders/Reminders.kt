@@ -11,6 +11,8 @@ import com.friday.app.data.AppSettings
 import com.friday.app.data.SettingsStore
 import com.friday.app.data.TaskRepository
 import com.friday.app.data.db.CueEntity
+import com.friday.app.data.db.CueKind
+import com.friday.app.data.db.FocusSessionEntity
 import com.friday.app.data.db.FridayDatabase
 import com.friday.app.data.db.TaskEntity
 import com.friday.app.data.db.TaskWithDetails
@@ -19,6 +21,7 @@ import com.friday.app.domain.Matrix
 import com.friday.app.domain.QuietHours
 import com.friday.app.domain.Schedule
 import com.friday.app.location.PlaceManager
+import com.friday.app.ui.Fmt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,6 +29,7 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
+import kotlin.math.abs
 
 /** Runs suspend work from a receiver without blocking the main thread. */
 fun BroadcastReceiver.launchAsync(block: suspend () -> Unit) {
@@ -107,6 +111,7 @@ class ReminderScheduler(private val ctx: Context, private val db: FridayDatabase
 
 /** What happens when a reminder fires or the user acts on its notification. */
 class ReminderEngine(
+    private val ctx: Context,
     private val db: FridayDatabase,
     private val settings: SettingsStore,
     private val scheduler: ReminderScheduler,
@@ -124,10 +129,44 @@ class ReminderEngine(
         if (snoozed != null && snoozed > now + 60_000) { scheduler.set(cue.id, snoozed); return } // woke up early
         val key = trigger?.let(Schedule::key) ?: now // place reminders: every arrival is its own occurrence
         if (snoozed == null && trigger != null && cue.firedKey == key) return // never fire the same occurrence twice
+        val focus = db.focus().active()
+        if (trigger != null && (cue.kind == CueKind.PREP || cue.kind == CueKind.START) && startedAlready(task, focus, now)) {
+            dao.updateCue(cue.copy(firedKey = key, firedAt = now, snoozedUntil = null, ackKey = null, held = false))
+            return
+        }
+        holdUntil(task, focus, now)?.let { end ->
+            dao.updateCue(cue.copy(held = true, snoozedUntil = end))
+            scheduler.set(cue.id, end) // if the session gets extended, this fires early and holds again
+            return
+        }
         val s = settings.current()
-        notifier.postReminder(task, cue, channelFor(task, cue, s, now), followUp = false, snoozeMin = s.defaultSnoozeMin)
-        dao.updateCue(cue.copy(firedKey = key, firedAt = now, snoozedUntil = null, ackKey = null))
+        notifier.postReminder(
+            task, cue, channelFor(cue, s, now), followUp = false,
+            body = Fmt.cueMessage(ctx, task, cue), second = SecondAction.SnoozePicker, bundle = notifier.shouldBundle(cue.id),
+        )
+        dao.updateCue(cue.copy(firedKey = key, firedAt = now, snoozedUntil = null, ackKey = null, held = false))
         if (s.followUp) scheduler.setFollowUp(cue.id, followUpAt(now, s))
+    }
+
+    /** Releases reminders held back during focus. Each is re-checked, so a newer session can hold it again. */
+    suspend fun releaseHeld(now: Long = System.currentTimeMillis()) {
+        for (cue in dao.heldCues()) {
+            // snoozedUntil = now (not null): a held snooze shares firedKey with the first alert and would be dropped as a duplicate.
+            dao.updateCue(cue.copy(held = false, snoozedUntil = now))
+            scheduler.cancel(cue.id)
+            fire(cue.id, now)
+        }
+    }
+
+    private fun startedAlready(task: TaskEntity, focus: FocusSessionEntity?, now: Long) =
+        focus?.taskId == task.id || task.lastActiveAt?.let { abs(now - it) <= STARTED_WINDOW_MS } == true
+
+    /** When a focus session on something else is running, the end of that session; null to deliver now. */
+    private fun holdUntil(task: TaskEntity, focus: FocusSessionEntity?, now: Long): Long? {
+        if (!FocusMath.silencesOthers(focus, now) || focus?.taskId == task.id) return null
+        val today = LocalDateTime.ofInstant(Instant.ofEpochMilli(now), ZoneId.systemDefault()).toLocalDate()
+        if (task.important && Matrix.isUrgent(task, today)) return null
+        return FocusMath.endsAt(focus!!)
     }
 
     /** One extra nudge if the reminder was not handled. Never more than one. */
@@ -135,8 +174,12 @@ class ReminderEngine(
         val cue = dao.getCue(cueId) ?: return
         val task = dao.get(cue.taskId) ?: return
         if (task.completedAt != null || cue.snoozedUntil != null || cue.firedKey == null || cue.ackKey == cue.firedKey) return
+        holdUntil(task, db.focus().active(), now)?.let { scheduler.setFollowUp(cue.id, it); return } // nudge after focus instead
         val s = settings.current()
-        notifier.postReminder(task, cue, channelFor(task, cue, s, now), followUp = true, snoozeMin = s.defaultSnoozeMin)
+        notifier.postReminder(
+            task, cue, channelFor(cue, s, now), followUp = true,
+            body = Fmt.cueMessage(ctx, task, cue), second = SecondAction.SnoozePicker, bundle = notifier.shouldBundle(cue.id),
+        )
         dao.updateCue(cue.copy(ackKey = cue.firedKey))
     }
 
@@ -152,8 +195,7 @@ class ReminderEngine(
     suspend fun acknowledge(cueId: Long) {
         val cue = dao.getCue(cueId) ?: return
         scheduler.cancelFollowUp(cueId)
-        dao.updateCue(cue.copy(ackKey = cue.firedKey))
-        dao.touch(cue.taskId)
+        dao.updateCue(cue.copy(ackKey = cue.firedKey)) // not a touch: "Got it" on "get ready" doesn't mean started
     }
 
     suspend fun snooze(cueId: Long, minutes: Int, now: Long = System.currentTimeMillis()) {
@@ -173,11 +215,9 @@ class ReminderEngine(
         tasks.postpone(cue.taskId, 1)
     }
 
-    private suspend fun channelFor(task: TaskEntity, cue: CueEntity, s: AppSettings, now: Long): String {
+    private fun channelFor(cue: CueEntity, s: AppSettings, now: Long): String {
         val t = LocalDateTime.ofInstant(Instant.ofEpochMilli(now), ZoneId.systemDefault())
         if (s.quietEnabled && QuietHours.contains(t.hour * 60 + t.minute, s.quietStartMin, s.quietEndMin)) return Channels.QUIET
-        val focus = db.focus().active()
-        if (FocusMath.silencesOthers(focus, now) && focus?.taskId != task.id && !(task.important && Matrix.isUrgent(task, t.toLocalDate()))) return Channels.QUIET
         return if (!cue.sound) Channels.REMINDERS_VIBRATE else Channels.REMINDERS
     }
 
@@ -190,6 +230,7 @@ class ReminderEngine(
 
     companion object {
         const val FOLLOW_UP_MS = 10 * 60 * 1000L
+        const val STARTED_WINDOW_MS = 30 * 60 * 1000L
     }
 }
 
