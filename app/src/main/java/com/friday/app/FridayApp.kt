@@ -18,9 +18,11 @@ import com.friday.app.data.db.FridayDatabase
 import com.friday.app.focus.FocusController
 import com.friday.app.focus.DndControl
 import com.friday.app.focus.SystemDnd
+import com.friday.app.location.AndroidPlaceSystem
 import com.friday.app.location.OverpassClient
 import com.friday.app.location.PlaceAwareness
 import com.friday.app.location.PlaceManager
+import com.friday.app.location.PlaceSystem
 import com.friday.app.location.VisitStore
 import com.friday.app.ui.Fmt
 import com.friday.app.reminders.Briefing
@@ -34,7 +36,13 @@ import kotlinx.coroutines.launch
 
 /** Hand-written dependency container: one instance of each service for the whole app. */
 /** [dnd] is faked by device tests so they never touch the phone's real Do Not Disturb. */
-class AppContainer(val context: Context, inMemoryDb: Boolean = false, val dnd: DndControl = SystemDnd(context)) {
+class AppContainer(
+    val context: Context,
+    inMemoryDb: Boolean = false,
+    val dnd: DndControl = SystemDnd(context),
+    /** Device tests pass a fake so the real visit fence, cap alarm and place note are never touched. */
+    placeSystem: PlaceSystem? = null,
+) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val db = FridayDatabase.build(context, inMemoryDb)
     val settings = SettingsStore(context)
@@ -55,7 +63,10 @@ class AppContainer(val context: Context, inMemoryDb: Boolean = false, val dnd: D
     val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
     val ai = OnlineAssistant(context, db, settings, secrets, tasks, notes, memory, reminders, OpenAiCompatClient(http))
     val assistant = AssistantEngine(context, db, tasks, notes, memory, parser, ai, places, settings)
-    val awareness = PlaceAwareness(context, db, settings, places, reminders, scheduler, notifier, tasks, memory, OverpassClient(http), visits, dnd)
+    val awareness = PlaceAwareness(
+        context, db, settings, reminders, notifier, tasks, memory, visits, dnd,
+        placeSystem ?: AndroidPlaceSystem(context, places, OverpassClient(http), scheduler, notifier),
+    )
     val speaker = Speaker(context, settings, secrets, http)
 }
 

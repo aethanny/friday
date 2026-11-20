@@ -16,9 +16,11 @@ import com.friday.app.data.SettingsStore
 import com.friday.app.data.TaskRepository
 import com.friday.app.data.db.FridayDatabase
 import com.friday.app.data.db.MemorySource
+import com.friday.app.domain.Clip
 import com.friday.app.domain.Matrix
 import com.friday.app.domain.PlaceKind
 import com.friday.app.domain.PlaceKinds
+import com.friday.app.focus.Dnd
 import com.friday.app.focus.DndControl
 import com.friday.app.reminders.Channels
 import com.friday.app.reminders.Notifier
@@ -63,12 +65,64 @@ class VisitStore(ctx: Context, name: String = "place_visit") {
         e.apply()
     }
 
-    fun holding() = get()?.holding == true
+    /** Quiet-place hold, which ends by itself 3 h after the visit began. */
+    fun holding(now: Long = System.currentTimeMillis()) = get()?.let { it.holding && now < it.startedAt + ReminderEngine.PLACE_HOLD_MS } == true
 
     /** Epoch day the "Left today" note was last shown at home. */
     var homeShownDay: Long
         get() = prefs.getLong("home_day", -1)
         set(v) = prefs.edit().putLong("home_day", v).apply()
+}
+
+/**
+ * Everything place awareness touches outside FRIDAY's own data: location, OpenStreetMap, the visit fence,
+ * the 3 h cap alarm, its notification and DND access. Device tests swap it so the real app's are never touched.
+ */
+interface PlaceSystem {
+    suspend fun here(): Location?
+    suspend fun tagsNear(lat: Double, lng: Double): List<Map<String, String>>
+    /** False when the fence could not be set: nothing would ever end the visit. */
+    suspend fun watchVisit(lat: Double, lng: Double): Boolean
+    suspend fun unwatchVisit()
+    fun armCap(startedAt: Long)
+    fun cancelCap()
+    fun hasDndAccess(): Boolean
+    fun note(channel: String, text: String, actionLabel: String?, action: PendingIntent?, open: PendingIntent)
+    fun cancelNote()
+}
+
+class AndroidPlaceSystem(
+    private val ctx: Context,
+    private val places: PlaceManager,
+    private val overpass: OverpassClient,
+    private val scheduler: ReminderScheduler,
+    private val notifier: Notifier,
+) : PlaceSystem {
+    private val am = ctx.getSystemService(AlarmManager::class.java)
+
+    private fun capIntent(startedAt: Long, flags: Int): PendingIntent? = PendingIntent.getBroadcast(
+        ctx, CAP_REQUEST,
+        Intent(ctx, VisitCheckReceiver::class.java).setAction(VisitCheckReceiver.ACTION_CAP).putExtra(VisitCheckReceiver.EXTRA_STARTED, startedAt),
+        PendingIntent.FLAG_IMMUTABLE or flags,
+    )
+
+    override suspend fun here() = places.here()
+    override suspend fun tagsNear(lat: Double, lng: Double) = overpass.tagsNear(lat, lng)
+    override suspend fun watchVisit(lat: Double, lng: Double) = places.watchVisit(lat, lng)
+    override suspend fun unwatchVisit() = places.unwatchVisit()
+    override fun armCap(startedAt: Long) =
+        scheduler.setAt(startedAt + ReminderEngine.PLACE_HOLD_MS, capIntent(startedAt, PendingIntent.FLAG_UPDATE_CURRENT)!!)
+    override fun cancelCap() {
+        capIntent(0, PendingIntent.FLAG_NO_CREATE)?.let { am.cancel(it); it.cancel() }
+    }
+    override fun hasDndAccess() = Dnd.hasAccess(ctx)
+    override fun note(channel: String, text: String, actionLabel: String?, action: PendingIntent?, open: PendingIntent) =
+        notifier.place(channel, text, actionLabel, action, open)
+    override fun cancelNote() = notifier.cancelPlace()
+
+    private companion object {
+        const val CAP_REQUEST = 2_000_000_008
+    }
 }
 
 /**
@@ -79,15 +133,13 @@ class PlaceAwareness(
     private val ctx: Context,
     private val db: FridayDatabase,
     private val settings: SettingsStore,
-    private val places: PlaceManager,
     private val reminders: ReminderEngine,
-    private val scheduler: ReminderScheduler,
     private val notifier: Notifier,
     private val tasks: TaskRepository,
     private val memory: MemoryRepository,
-    private val overpass: OverpassClient,
     val visits: VisitStore,
     private val dnd: DndControl,
+    private val system: PlaceSystem,
 ) {
     private val am = ctx.getSystemService(AlarmManager::class.java)
 
@@ -99,12 +151,6 @@ class PlaceAwareness(
 
     private fun checkIntent(flags: Int = PendingIntent.FLAG_UPDATE_CURRENT): PendingIntent? =
         PendingIntent.getBroadcast(ctx, CHECK_REQUEST, Intent(ctx, VisitCheckReceiver::class.java), PendingIntent.FLAG_IMMUTABLE or flags)
-
-    private fun capIntent(startedAt: Long, flags: Int = PendingIntent.FLAG_UPDATE_CURRENT): PendingIntent? = PendingIntent.getBroadcast(
-        ctx, CAP_REQUEST,
-        Intent(ctx, VisitCheckReceiver::class.java).setAction(VisitCheckReceiver.ACTION_CAP).putExtra(VisitCheckReceiver.EXTRA_STARTED, startedAt),
-        PendingIntent.FLAG_IMMUTABLE or flags,
-    )
 
     @SuppressLint("MissingPermission")
     suspend fun enable() {
@@ -133,18 +179,25 @@ class PlaceAwareness(
     }
 
     suspend fun stillFor3Min(now: Long = System.currentTimeMillis()) {
-        if (visits.get() != null) return
-        val here = places.here() ?: return
+        visits.get()?.let { v ->
+            if (now - v.startedAt < ReminderEngine.PLACE_HOLD_MS) return
+            left(now) // stale: its exit was never seen (fence lost to a reboot, or expired)
+        }
+        val here = system.here() ?: return
         val saved = db.places().all().firstOrNull { p ->
             FloatArray(1).also { Location.distanceBetween(here.latitude, here.longitude, p.lat, p.lng, it) }[0] <= p.radiusM
         }
         val kind = when {
             saved != null -> if (saved.name.trim().lowercase() in HOME_NAMES) PlaceKind.HOME else PlaceKind.NONE // saved places have their own reminders
-            else -> PlaceKinds.classify(overpass.tagsNear(here.latitude, here.longitude))
+            else -> PlaceKinds.classify(system.tagsNear(here.latitude, here.longitude))
         }
         if (kind == PlaceKind.NONE) return
+        if (!system.watchVisit(here.latitude, here.longitude)) {
+            // Nothing could end the visit, so keep none: one-shot actions only, never a silence that might not lift.
+            if (kind != PlaceKind.HOLD) act(kind, now)
+            return
+        }
         visits.set(Visit(kind, here.latitude, here.longitude, now, holding = false))
-        places.watchVisit(here.latitude, here.longitude)
         act(kind, now)
     }
 
@@ -153,21 +206,20 @@ class PlaceAwareness(
         when (kind) {
             PlaceKind.HOLD -> {
                 if (kind.name in settings.current().placeOffKinds) return
-                val v = visits.get()
-                v?.let { visits.set(it.copy(holding = true)) }
+                val v = visits.get() ?: return // a silence needs a visit that can end
+                visits.set(v.copy(holding = true))
+                system.armCap(v.startedAt) // never quiet for more than 3 h, even if leaving is never detected
+                if (!system.hasDndAccess()) return // FRIDAY still holds its own reminders, but claims no silence
                 dnd.enable(REASON)
-                // Never silent for more than 3 h, even if leaving is never detected (calls must get through).
-                val startedAt = v?.startedAt ?: now
-                scheduler.setAt(startedAt + ReminderEngine.PLACE_HOLD_MS, capIntent(startedAt)!!)
                 val undo = PendingIntent.getBroadcast(
                     ctx, UNDO_REQUEST, Intent(ctx, PlaceActionReceiver::class.java).setAction(PlaceActionReceiver.ACTION_UNDO), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                 )
-                notifier.place(Channels.QUIET, ctx.getString(R.string.place_hold), ctx.getString(R.string.place_undo), undo, notifier.openAppIntent(904, route = "home"))
+                system.note(Channels.QUIET, ctx.getString(R.string.place_hold), ctx.getString(R.string.place_undo), undo, notifier.openAppIntent(904, route = "home"))
             }
             PlaceKind.STUDY -> {
                 val t = Matrix.rankForNow(tasks.openTasks().map { it.task }, today).firstOrNull() ?: return
                 val start = notifier.openAppIntent(905, route = "focus/${t.id}")
-                notifier.place(Channels.BRIEFING, ctx.getString(R.string.place_study, t.title), ctx.getString(R.string.start_focus), start, start)
+                system.note(Channels.BRIEFING, Clip.note(ctx.getString(R.string.place_study, Clip.title(t.title))), ctx.getString(R.string.start_focus), start, start)
             }
             PlaceKind.STORE, PlaceKind.PHARMACY, PlaceKind.SUPERMARKET ->
                 db.tasks().openTasks().flatMap { it.cues }
@@ -179,7 +231,8 @@ class PlaceAwareness(
                 val left = tasks.openTasks().map { it.task }.filter { it.dueDate == day }
                 if (left.isEmpty()) return
                 visits.homeShownDay = day.toEpochDay()
-                notifier.place(Channels.BRIEFING, ctx.getString(R.string.place_home, left.take(3).joinToString(", ") { it.title }), null, null, notifier.openAppIntent(906, route = "home"))
+                val text = Clip.note(ctx.getString(R.string.place_home, left.take(3).joinToString(", ") { Clip.title(it.title) }))
+                system.note(Channels.BRIEFING, text, null, null, notifier.openAppIntent(906, route = "home"))
             }
             PlaceKind.NONE -> Unit
         }
@@ -188,13 +241,13 @@ class PlaceAwareness(
     suspend fun left(now: Long = System.currentTimeMillis()) {
         val v = visits.get() ?: return
         visits.set(null)
-        capIntent(v.startedAt, PendingIntent.FLAG_NO_CREATE)?.let { am.cancel(it); it.cancel() }
-        places.unwatchVisit()
-        if (v.holding) { dnd.restore(REASON); notifier.cancelPlace() }
+        system.cancelCap()
+        system.unwatchVisit()
+        if (v.holding) { dnd.restore(REASON); system.cancelNote() }
         reminders.releaseHeld(now) // the focus rule holds again whatever a running focus session still covers
     }
 
-    fun holding(): Boolean = visits.holding()
+    fun holding(now: Long = System.currentTimeMillis()): Boolean = visits.holding(now)
 
     /** The 3 h cap of the visit that started at [startedAt]: end it. A visit that already ended (or a newer one) is left alone. */
     suspend fun capReached(startedAt: Long, now: Long = System.currentTimeMillis()) {
@@ -202,12 +255,10 @@ class PlaceAwareness(
         left(now)
     }
 
-    /** Alarms do not survive a restart: end a quiet-place visit past its cap, or arm the cap again. */
+    /** Fences and alarms do not survive a restart: end the visit, unless it is a quiet place still inside its cap. */
     suspend fun restoreAfterRestart(now: Long = System.currentTimeMillis()) {
         val v = visits.get() ?: return
-        if (v.kind != PlaceKind.HOLD) return
-        val cap = v.startedAt + ReminderEngine.PLACE_HOLD_MS
-        if (now >= cap) left(now) else scheduler.setAt(cap, capIntent(v.startedAt)!!)
+        if (v.kind == PlaceKind.HOLD && now < v.startedAt + ReminderEngine.PLACE_HOLD_MS) system.armCap(v.startedAt) else left(now)
     }
 
     /** "Undo" on "Went silent here". Twice for the same kind of place, and FRIDAY stops going silent there. */
@@ -216,7 +267,7 @@ class PlaceAwareness(
         if (!v.holding) return
         visits.set(v.copy(holding = false))
         dnd.restore(REASON)
-        notifier.cancelPlace()
+        system.cancelNote()
         reminders.releaseHeld()
         val s = settings.current()
         val (undos, n) = PlaceKinds.bumpUndo(s.placeUndos, v.kind)
@@ -234,7 +285,6 @@ class PlaceAwareness(
         private const val STILL_REQUEST = 2_000_000_005
         private const val CHECK_REQUEST = 2_000_000_006
         private const val UNDO_REQUEST = 2_000_000_007
-        private const val CAP_REQUEST = 2_000_000_008
         private val HOME_NAMES = setOf("home", "rumah")
     }
 }

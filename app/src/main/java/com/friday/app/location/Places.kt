@@ -108,15 +108,15 @@ class PlaceManager(private val ctx: Context, private val db: FridayDatabase) {
             }
     }
 
-    /** Watches for leaving the place the user stopped at (place awareness). */
+    /** Watches for leaving the place the user stopped at (place awareness). False when it could not. */
     @SuppressLint("MissingPermission")
-    suspend fun watchVisit(lat: Double, lng: Double) {
-        if (!hasLocation() || !hasBackground()) return
+    suspend fun watchVisit(lat: Double, lng: Double): Boolean {
+        if (!hasLocation() || !hasBackground()) return false
         val fence = Geofence.Builder().setRequestId(VISIT).setCircularRegion(lat, lng, 150f)
-            .setExpirationDuration(Geofence.NEVER_EXPIRE).setTransitionTypes(Geofence.GEOFENCE_TRANSITION_EXIT).build()
+            .setExpirationDuration(3 * 60 * 60 * 1000L).setTransitionTypes(Geofence.GEOFENCE_TRANSITION_EXIT).build() // same 3 h as the visit cap
         val request = GeofencingRequest.Builder().setInitialTrigger(0).addGeofence(fence).build()
-        runCatching { geofencing.addGeofences(request, pendingIntent(VISIT_REQUEST)).awaitResult() }
-            .onFailure { Log.w(TAG, "could not watch visit: ${it.message}") }
+        return runCatching { geofencing.addGeofences(request, pendingIntent(VISIT_REQUEST)).awaitResult() }
+            .onFailure { Log.w(TAG, "could not watch visit: ${it.message}") }.isSuccess
     }
 
     suspend fun unwatchVisit() {

@@ -22,7 +22,10 @@ import com.friday.app.data.db.TaskEntity
 import com.friday.app.domain.DndReasons
 import com.friday.app.domain.FocusMath
 import com.friday.app.domain.PlaceKind
+import com.friday.app.focus.Dnd
 import com.friday.app.focus.DndControl
+import com.friday.app.location.PlaceSystem
+import android.location.Location
 import com.friday.app.location.Visit
 import com.friday.app.focus.FocusController
 import com.friday.app.reminders.Extras
@@ -59,6 +62,25 @@ class DeviceTests {
     private val ctx: Context = ApplicationProvider.getApplicationContext()
     private lateinit var c: AppContainer
     private val fakeDnd = FakeDnd()
+    private val fakeSystem = FakePlaceSystem()
+
+    /** Stands in for location, OpenStreetMap, the visit fence, the cap alarm and the place note. */
+    private class FakePlaceSystem : PlaceSystem {
+        var location: Location? = null
+        var tags = emptyList<Map<String, String>>()
+        var watchOk = true
+        var dndAccess = true
+        val notes = mutableListOf<String>()
+        override suspend fun here() = location
+        override suspend fun tagsNear(lat: Double, lng: Double) = tags
+        override suspend fun watchVisit(lat: Double, lng: Double) = watchOk
+        override suspend fun unwatchVisit() {}
+        override fun armCap(startedAt: Long) {}
+        override fun cancelCap() {}
+        override fun hasDndAccess() = dndAccess
+        override fun note(channel: String, text: String, actionLabel: String?, action: PendingIntent?, open: PendingIntent) { notes += text }
+        override fun cancelNote() {}
+    }
 
     /** Records Do Not Disturb reasons instead of changing the phone's real setting. */
     private class FakeDnd : DndControl {
@@ -70,7 +92,7 @@ class DeviceTests {
     @get:Rule val compose = createComposeRule()
 
     @Before fun setUp() = runBlocking<Unit> {
-        c = AppContainer(ctx, inMemoryDb = true, dnd = fakeDnd)
+        c = AppContainer(ctx, inMemoryDb = true, dnd = fakeDnd, placeSystem = fakeSystem)
         c.visits.set(null)
         val seed = c.db.tasks().insert(TaskEntity(id = 1_000_000, title = "seed"))
         c.db.tasks().insertCue(com.friday.app.data.db.CueEntity(id = 1_000_000, taskId = seed, kind = CueKind.CUSTOM, anchor = com.friday.app.data.db.CueAnchor.START))
@@ -593,6 +615,72 @@ class DeviceTests {
         val cue = c.db.tasks().getCue(b.id)!!
         assertTrue(cue.held)
         assertEquals(now + 60_000 + 3 * 60 * 60_000L, cue.snoozedUntil) // now held by the place
+    }
+
+    @Test fun focusHeldCueStaysQuietAtPlace() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val a = timedTask("[test] A"); val b = cueOf(timedTask("[test] B"), CueKind.START)
+        focusOn(a, now)
+        c.reminders.fire(b.id, now)
+        val focusEnd = now + 25 * 60_000
+        assertEquals(focusEnd, c.db.tasks().getCue(b.id)!!.snoozedUntil)
+        atQuietPlace(now + 60_000)
+        c.reminders.fire(b.id, focusEnd) // its own alarm beats releaseHeld
+        val cue = c.db.tasks().getCue(b.id)!!
+        assertTrue(cue.held)
+        assertNull(cue.firedKey)
+        assertEquals(focusEnd + 3 * 60 * 60_000L, cue.snoozedUntil)
+    }
+
+    private fun pharmacyHere() {
+        fakeSystem.location = Location("test").apply { latitude = 3.1; longitude = 101.6 }
+        fakeSystem.tags = listOf(mapOf("amenity" to "pharmacy"))
+    }
+
+    @Test fun staleVisitDoesNotBlockNewStops() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val cue = c.tasks.addPlaceTypeCue(c.tasks.save(TaskEntity(title = "[test] Buy plasters")), "PHARMACY")
+        c.visits.set(Visit(PlaceKind.STORE, 0.0, 0.0, now - 4 * 60 * 60_000L, holding = false))
+        pharmacyHere()
+        c.awareness.stillFor3Min(now)
+        assertEquals(now, c.visits.get()!!.startedAt)
+        assertEquals(PlaceKind.PHARMACY, c.visits.get()!!.kind)
+        assertEquals(now, c.db.tasks().getCue(cue)!!.firedAt)
+    }
+
+    @Test fun visitNotKeptWhenFenceFails() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val cue = c.tasks.addPlaceTypeCue(c.tasks.save(TaskEntity(title = "[test] Buy plasters")), "PHARMACY")
+        pharmacyHere()
+        fakeSystem.watchOk = false
+        c.awareness.stillFor3Min(now)
+        assertNull(c.visits.get())
+        assertEquals(now, c.db.tasks().getCue(cue)!!.firedAt) // the one-shot errand still fires
+    }
+
+    @Test fun noSilenceClaimWithoutDndAccess() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        fakeSystem.dndAccess = false
+        c.visits.set(Visit(PlaceKind.HOLD, 0.0, 0.0, now, holding = false))
+        c.awareness.act(PlaceKind.HOLD, now)
+        assertTrue(fakeSystem.notes.isEmpty())
+        assertTrue(fakeDnd.reasons.isEmpty())
+        val b = cueOf(timedTask("[test] B"), CueKind.START)
+        c.reminders.fire(b.id, now)
+        assertTrue(c.db.tasks().getCue(b.id)!!.held) // FRIDAY's own reminders still wait
+    }
+
+    @Test fun dndReasonsPersistInPrefs() {
+        val prefs = ctx.getSharedPreferences("dnd_reasons_test", Context.MODE_PRIVATE) // never the real "focus_dnd"
+        prefs.edit().clear().commit()
+        Dnd.addReason(prefs, "focus")
+        Dnd.addReason(prefs, "place")
+        val afterFocus = Dnd.removeReason(prefs, "focus")
+        assertEquals(setOf("place"), afterFocus)
+        assertFalse(DndReasons.shouldRestore(afterFocus))
+        assertEquals(setOf("place"), prefs.getStringSet("reasons", null))
+        assertTrue(DndReasons.shouldRestore(Dnd.removeReason(prefs, "place")))
+        prefs.edit().clear().commit()
     }
 
     @Test fun placeCapEndsQuietVisit() = runBlocking<Unit> {

@@ -87,6 +87,12 @@ object PlaceKinds {
     }
 }
 
+/** Keeps place notes inside the notification limit: titles shortened with "…", whole text at most 140 characters. */
+object Clip {
+    fun title(s: String, max: Int = 40): String = if (s.length <= max) s else s.take(max - 1).trimEnd() + "…"
+    fun note(s: String): String = if (s.length <= 140) s else s.take(139).trimEnd() + "…"
+}
+
 /** Why Do Not Disturb is on ("focus", "place"): the user's own setting comes back only when the last reason ends. */
 object DndReasons {
     fun add(current: Set<String>, r: String): Set<String> = current + r

@@ -127,7 +127,7 @@ class ReminderEngine(
     private val tasks: TaskRepository,
     private val memory: MemoryRepository,
     /** True while at a quiet place (mosque, cinema, hospital) that FRIDAY went silent for. */
-    private val atQuietPlace: () -> Boolean = { false },
+    private val atQuietPlace: (now: Long) -> Boolean = { false },
     /** Builds the "usually does X around T" memory text (needs Context for string and time format). */
     private val habitText: (TaskEntity, LocalTime) -> String,
 ) {
@@ -152,8 +152,8 @@ class ReminderEngine(
             scheduler.set(cue.id, end) // if the session gets extended, this fires early and holds again
             return
         }
-        // A cue still marked held here has reached its place cap: deliver, in case leaving was never detected.
-        if (!cue.held && atQuietPlace() && !importantUrgent(task, now)) {
+        // Decided by the visit alone: its 3 h cap ends the hold, so a focus-held cue firing here stays quiet too.
+        if (atQuietPlace(now) && !importantUrgent(task, now)) {
             val end = now + PLACE_HOLD_MS
             dao.updateCue(cue.copy(held = true, snoozedUntil = end))
             scheduler.set(cue.id, end)
@@ -219,7 +219,7 @@ class ReminderEngine(
         if (task.completedAt != null || cue.snoozedUntil != null || cue.firedKey == null || cue.ackKey == cue.firedKey) return
         holdUntil(task, db.focus().active(), now)?.let { scheduler.setFollowUp(cue.id, it); return } // nudge after focus instead
         // At a quiet place: skip the nudge altogether. One fewer is calmer than one in a mosque.
-        if (atQuietPlace() && !importantUrgent(task, now)) { dao.updateCue(cue.copy(ackKey = cue.firedKey)); return }
+        if (atQuietPlace(now) && !importantUrgent(task, now)) { dao.updateCue(cue.copy(ackKey = cue.firedKey)); return }
         val s = settings.current()
         notifier.postReminder(
             task, cue, channelFor(cue, s, now), followUp = true,

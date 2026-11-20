@@ -7,6 +7,7 @@ import com.friday.app.data.db.CueKind
 import com.friday.app.data.db.SubtaskEntity
 import com.friday.app.data.db.TaskEntity
 import com.friday.app.data.db.TaskWithDetails
+import com.friday.app.domain.Clip
 import com.friday.app.domain.DndReasons
 import com.friday.app.domain.Habits
 import com.friday.app.domain.PlaceKind
@@ -87,6 +88,16 @@ class SmartTest {
         val afterFocus = DndReasons.remove(both, "focus")
         assertFalse(DndReasons.shouldRestore(afterFocus))
         assertTrue(DndReasons.shouldRestore(DndReasons.remove(afterFocus, "place")))
+    }
+
+    @Test fun placeNotesStayWithin140() {
+        val long = "x".repeat(300)
+        val study = Clip.note("At the library. Focus on ${Clip.title(long)}?")
+        assertTrue(study.length <= 140)
+        assertTrue(Clip.title(long).endsWith("…"))
+        val home = Clip.note("Left today: " + List(3) { Clip.title(long) }.joinToString(", "))
+        assertTrue(home.length <= 140 && home.endsWith("…"))
+        assertEquals("Left today: Essay", Clip.note("Left today: " + Clip.title("Essay")))
     }
 
     @Test fun undoCountsPerKind() {

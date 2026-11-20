@@ -3,7 +3,10 @@ package com.friday.app.ui.settings
 import androidx.activity.result.IntentSenderRequest
 import android.Manifest
 import android.location.Location
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.provider.Settings
+import com.friday.app.focus.Dnd
 import android.os.Build
 import androidx.core.content.ContextCompat
 import com.friday.app.BuildConfig
@@ -80,17 +83,21 @@ fun PlacesScreen(nav: NavController) {
     val foreground = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
         if (r[Manifest.permission.ACCESS_FINE_LOCATION] == true || r[Manifest.permission.ACCESS_COARSE_LOCATION] == true) locate()
     }
-    // Place awareness: location, then physical activity (API 29+), then location all the time. Any "no" leaves it off.
+    // Place awareness: precise location, physical activity (API 29+), location all the time, then Do Not Disturb access.
+    // Any "no" (approximate location included) stops the chain, leaves it off and says why: never a re-ask loop.
     val settings by c.settings.flow.collectAsStateWithLifecycle(initialValue = AppSettings())
     var awareDenied by remember { mutableStateOf(false) }
     var wantAware by remember { mutableStateOf(false) }
     lateinit var nextAwareStep: () -> Unit
     val awareLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
         resume++
-        if (r.values.any { it }) nextAwareStep() else awareDenied = true
+        if (c.places.hasLocation()) nextAwareStep() else awareDenied = true
     }
     val activity = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) nextAwareStep() else awareDenied = true
+    }
+    val dndAccess = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (Dnd.hasAccess(ctx)) nextAwareStep() else awareDenied = true
     }
     nextAwareStep = {
         when {
@@ -98,6 +105,7 @@ fun PlacesScreen(nav: NavController) {
             Build.VERSION.SDK_INT >= 29 && ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED ->
                 activity.launch(Manifest.permission.ACTIVITY_RECOGNITION)
             !c.places.hasBackground() -> { wantAware = true; askBackground = true }
+            !Dnd.hasAccess(ctx) -> dndAccess.launch(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
             else -> { awareDenied = false; scope.launch { c.awareness.enable() } }
         }
     }

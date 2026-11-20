@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
 import android.util.Log
 import com.friday.app.container
@@ -186,11 +187,18 @@ object Dnd {
 
     fun hasAccess(ctx: Context) = nm(ctx).isNotificationPolicyAccessGranted
 
+    /** Adds [reason] to the stored set and returns it. Prefs only, never the system policy, so tests can use their own file. */
+    fun addReason(prefs: SharedPreferences, reason: String): Set<String> =
+        DndReasons.add(prefs.getStringSet(REASONS, null).orEmpty(), reason).also { prefs.edit().putStringSet(REASONS, it).apply() }
+
+    fun removeReason(prefs: SharedPreferences, reason: String): Set<String> =
+        DndReasons.remove(prefs.getStringSet(REASONS, null).orEmpty(), reason).also { prefs.edit().putStringSet(REASONS, it).apply() }
+
     fun enable(ctx: Context, reason: String) {
         val nm = nm(ctx)
         if (!nm.isNotificationPolicyAccessGranted) return
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        prefs.edit().putStringSet(REASONS, DndReasons.add(prefs.getStringSet(REASONS, null).orEmpty(), reason)).apply()
+        addReason(prefs, reason)
         if (prefs.getBoolean("active", false)) return
         val p = nm.notificationPolicy
         prefs.edit()
@@ -209,8 +217,7 @@ object Dnd {
 
     fun restore(ctx: Context, reason: String) {
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val after = DndReasons.remove(prefs.getStringSet(REASONS, null).orEmpty(), reason)
-        prefs.edit().putStringSet(REASONS, after).apply()
+        val after = removeReason(prefs, reason)
         if (!DndReasons.shouldRestore(after) || !prefs.getBoolean("active", false)) return
         val nm = nm(ctx)
         if (nm.isNotificationPolicyAccessGranted) {
