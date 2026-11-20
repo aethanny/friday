@@ -34,13 +34,18 @@ class TaskRepository(
     suspend fun openTasks() = dao.openTasks()
 
     /** Creates or updates a task, keeps its automatic reminders in step with its schedule and re-arms alarms. */
-    suspend fun save(task: TaskEntity): Long {
+    suspend fun save(task: TaskEntity, keepMonthlyAnchor: Boolean = false): Long {
         val s = settings.current()
         var t = task.copy(title = task.title.trim().take(200).ifBlank { "Untitled" }, category = task.category?.trim()?.ifBlank { null })
         if (t.repeat != Repeat.NONE && t.dueDate == null) t = t.copy(dueDate = today())
         if (t.dueDate == null) t = t.copy(dueTime = null)
-        if (t.repeat == Repeat.MONTHLY && t.repeatDays == 0) t = t.copy(repeatDays = t.dueDate!!.dayOfMonth)
         val old = if (t.id != 0L) dao.get(t.id) else null
+        if (t.repeat == Repeat.MONTHLY) {
+            // anchor day follows the due date, except when postponing (keeps the original day, e.g. the 31st)
+            val keep = keepMonthlyAnchor && t.repeatDays in 1..31
+            val rederive = old == null || old.repeat != Repeat.MONTHLY || old.dueDate != t.dueDate
+            if (!keep && (rederive || t.repeatDays !in 1..31)) t = t.copy(repeatDays = t.dueDate!!.dayOfMonth)
+        }
         val id = if (old == null) {
             dao.insert(t.copy(id = 0))
         } else {
@@ -130,7 +135,7 @@ class TaskRepository(
     /** Moves a task's due date by [days]; counts as a postponement. */
     suspend fun postpone(id: Long, days: Long = 1) {
         val t = dao.get(id) ?: return
-        save(t.copy(dueDate = (t.dueDate ?: today()).plusDays(days)))
+        save(t.copy(dueDate = (t.dueDate ?: today()).plusDays(days)), keepMonthlyAnchor = true)
     }
 
     suspend fun touch(id: Long) = dao.touch(id)

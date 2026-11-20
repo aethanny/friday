@@ -241,6 +241,26 @@ class DeviceTests {
         assertEquals(31, c.tasks.get(id)!!.repeatDays)
     }
 
+    @Test fun editingMonthlyDueDateMovesAnchor() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Rent", dueDate = LocalDate.of(2027, 1, 31), repeat = Repeat.MONTHLY))
+        c.tasks.save(c.tasks.get(id)!!.copy(dueDate = LocalDate.of(2027, 2, 15)))
+        assertEquals(15, c.tasks.get(id)!!.repeatDays)
+    }
+
+    @Test fun weeklyToMonthlyUsesDueDateDay() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Gym", dueDate = LocalDate.of(2027, 3, 9), repeat = Repeat.WEEKLY, repeatDays = 0b0010101))
+        c.tasks.save(c.tasks.get(id)!!.copy(repeat = Repeat.MONTHLY))
+        assertEquals(9, c.tasks.get(id)!!.repeatDays)
+    }
+
+    @Test fun postponingMonthlyKeepsAnchor() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Rent", dueDate = LocalDate.of(2027, 1, 31), repeat = Repeat.MONTHLY))
+        c.tasks.postpone(id, 1)
+        val t = c.tasks.get(id)!!
+        assertEquals(LocalDate.of(2027, 2, 1), t.dueDate)
+        assertEquals(31, t.repeatDays)
+    }
+
     private fun alarm(cueId: Long): PendingIntent? = PendingIntent.getBroadcast(
         ctx, cueId.toInt(),
         Intent(ctx, ReminderReceiver::class.java).setAction(ReminderReceiver.ACTION_FIRE).putExtra(Extras.CUE_ID, cueId),
