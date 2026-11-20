@@ -527,4 +527,14 @@
     <string name="battery_title">Benarkan peringatan melepasi penjimatan bateri</string>
     <string name="battery_sub">Sesetengah telefon melewatkan atau menyekat peringatan untuk jimat bateri. Ketik untuk benarkan FRIDAY berjalan tanpa sekatan.</string>
     <string name="remembered_line">Diingat: %1$s</string>
+    <string name="place_aware">Kenal tempat saya</string>
+    <string name="place_aware_sub">Senyapkan telefon di tempat seperti masjid dan pawagam, dan ingatkan anda di kedai. Hanya lokasi kasar anda disemak dengan OpenStreetMap bila anda berhenti di sesuatu tempat.</string>
+    <string name="place_aware_denied">Ini perlukan lokasi sepanjang masa dan akses aktiviti fizikal. Ia kekal mati sehingga kedua-duanya dibenarkan.</string>
+    <string name="place_check_now">Semak tempat ini sekarang</string>
+    <string name="place_hold">Senyap di sini</string>
+    <string name="place_undo">Batal</string>
+    <string name="place_study">Di perpustakaan. Fokus pada %1$s?</string>
+    <string name="place_home">Tinggal hari ini: %1$s</string>
+    <string name="place_kind_hold">tempat senyap</string>
+    <string name="place_memory_no_silence">Tak mahu FRIDAY senyap di %1$s</string>
 </resources>

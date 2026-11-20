@@ -34,7 +34,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-private suspend fun <T> Task<T>.awaitResult(): T = suspendCancellableCoroutine { c ->
+internal suspend fun <T> Task<T>.awaitResult(): T = suspendCancellableCoroutine { c ->
     addOnSuccessListener { c.resume(it) }
     addOnFailureListener { c.resumeWithException(it) }
 }
@@ -55,8 +55,9 @@ class PlaceManager(private val ctx: Context, private val db: FridayDatabase) {
     private fun granted(p: String) = ContextCompat.checkSelfPermission(ctx, p) == PackageManager.PERMISSION_GRANTED
 
     // Geofencing fills in the event extras, so this PendingIntent has to be mutable.
-    private fun pendingIntent(): PendingIntent = PendingIntent.getBroadcast(
-        ctx, REQUEST, Intent(ctx, GeofenceReceiver::class.java),
+    // The visit fence has its own PendingIntent so registerAll() (which removes by PendingIntent) leaves it alone.
+    private fun pendingIntent(request: Int = REQUEST): PendingIntent = PendingIntent.getBroadcast(
+        ctx, request, Intent(ctx, GeofenceReceiver::class.java),
         PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0),
     )
 
@@ -107,6 +108,21 @@ class PlaceManager(private val ctx: Context, private val db: FridayDatabase) {
             }
     }
 
+    /** Watches for leaving the place the user stopped at (place awareness). */
+    @SuppressLint("MissingPermission")
+    suspend fun watchVisit(lat: Double, lng: Double) {
+        if (!hasLocation() || !hasBackground()) return
+        val fence = Geofence.Builder().setRequestId(VISIT).setCircularRegion(lat, lng, 150f)
+            .setExpirationDuration(Geofence.NEVER_EXPIRE).setTransitionTypes(Geofence.GEOFENCE_TRANSITION_EXIT).build()
+        val request = GeofencingRequest.Builder().setInitialTrigger(0).addGeofence(fence).build()
+        runCatching { geofencing.addGeofences(request, pendingIntent(VISIT_REQUEST)).awaitResult() }
+            .onFailure { Log.w(TAG, "could not watch visit: ${it.message}") }
+    }
+
+    suspend fun unwatchVisit() {
+        runCatching { geofencing.removeGeofences(listOf(VISIT)).awaitResult() }
+    }
+
     /** Google's own "turn on location accuracy" dialog, or null when nothing needs fixing. */
     suspend fun accuracyFix(): IntentSender? = runCatching {
         val request = LocationSettingsRequest.Builder()
@@ -120,6 +136,8 @@ class PlaceManager(private val ctx: Context, private val db: FridayDatabase) {
 
     companion object {
         private const val REQUEST = 2_000_000_003
+        private const val VISIT_REQUEST = 2_000_000_004
+        const val VISIT = "visit"
         private const val TAG = "FRIDAY"
         /** GPS can wobble at the edge of a place; one reminder per half hour is enough. */
         const val COOLDOWN_MS = 30 * 60 * 1000L
@@ -135,8 +153,12 @@ class GeofenceReceiver : BroadcastReceiver() {
             Geofence.GEOFENCE_TRANSITION_EXIT -> CueAnchor.LEAVE
             else -> return
         }
-        val placeIds = event.triggeringGeofences.orEmpty().mapNotNull { it.requestId.removePrefix("place-").toLongOrNull() }.toSet()
         val c = context.container
+        if (anchor == CueAnchor.LEAVE && event.triggeringGeofences.orEmpty().any { it.requestId == PlaceManager.VISIT }) {
+            launchAsync { c.awareness.left() }
+            return
+        }
+        val placeIds = event.triggeringGeofences.orEmpty().mapNotNull { it.requestId.removePrefix("place-").toLongOrNull() }.toSet()
         launchAsync {
             val now = System.currentTimeMillis()
             c.db.tasks().openTasks().flatMap { it.cues }

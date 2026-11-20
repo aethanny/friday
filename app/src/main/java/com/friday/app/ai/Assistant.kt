@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import com.friday.app.R
 import com.friday.app.data.MemoryRepository
 import com.friday.app.data.NoteRepository
+import com.friday.app.data.SettingsStore
 import com.friday.app.data.TaskRepository
 import com.friday.app.data.TaskSnapshot
 import com.friday.app.data.db.FocusOutcome
@@ -77,6 +78,7 @@ class AssistantEngine(
     private val parser: CommandParser,
     private val remote: RemoteAssistant?,
     private val places: PlaceManager? = null,
+    private val settings: SettingsStore? = null,
     private val now: () -> LocalDateTime = LocalDateTime::now,
 ) {
     private var pending: Parsed? = null
@@ -182,8 +184,8 @@ class AssistantEngine(
         val r = ctx.inLang(p.lang)
         val id = tasks.save(TaskEntity(title = p.title, important = p.important))
         tasks.addPlaceTypeCue(id, p.placeType!!)
-        // TODO(Task 9): only append when AppSettings.placeAwareness is off.
-        val msg = r.getString(R.string.errand_set, p.title, Fmt.placeTypeLabel(r, p.placeType)) + "\n\n" + r.getString(R.string.errand_needs_places)
+        var msg = r.getString(R.string.errand_set, p.title, Fmt.placeTypeLabel(r, p.placeType))
+        if (settings?.current()?.placeAwareness != true) msg += "\n\n" + r.getString(R.string.errand_needs_places)
         return EngineResult(msg, undo = Undo.DeleteTask(id), taskId = id, lang = p.lang)
     }
 

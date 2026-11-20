@@ -32,6 +32,7 @@ object NotificationIds {
     const val FOCUS_DONE = 2
     const val BRIEFING = 3
     const val SHIELD = 4
+    const val PLACE = 5
     const val BUNDLE = 9_999
     fun reminder(cueId: Long) = 10_000 + cueId.toInt()
 }
@@ -225,6 +226,24 @@ class Notifier(private val ctx: Context) {
     }
 
     fun cancelFocusDone() = nm.cancel(NotificationIds.FOCUS_DONE)
+
+    /** One quiet note about the place the user stopped at, with at most one button. */
+    @SuppressLint("MissingPermission")
+    fun place(channel: String, text: String, actionLabel: String?, action: PendingIntent?, open: PendingIntent) {
+        if (!enabled()) return
+        val b = NotificationCompat.Builder(ctx, channel)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(accent)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setSilent(true)
+            .setAutoCancel(true)
+            .setContentIntent(open)
+        if (actionLabel != null && action != null) b.addAction(0, actionLabel, action)
+        nm.notify(NotificationIds.PLACE, b.build())
+    }
+
+    fun cancelPlace() = nm.cancel(NotificationIds.PLACE)
 
     @SuppressLint("MissingPermission")
     fun briefing(title: String, text: String) {

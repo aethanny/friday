@@ -126,6 +126,8 @@ class ReminderEngine(
     private val notifier: Notifier,
     private val tasks: TaskRepository,
     private val memory: MemoryRepository,
+    /** True while at a quiet place (mosque, cinema, hospital) that FRIDAY went silent for. */
+    private val atQuietPlace: () -> Boolean = { false },
     /** Builds the "usually does X around T" memory text (needs Context for string and time format). */
     private val habitText: (TaskEntity, LocalTime) -> String,
 ) {
@@ -148,6 +150,13 @@ class ReminderEngine(
         holdUntil(task, focus, now)?.let { end ->
             dao.updateCue(cue.copy(held = true, snoozedUntil = end))
             scheduler.set(cue.id, end) // if the session gets extended, this fires early and holds again
+            return
+        }
+        // A cue still marked held here has reached its place cap: deliver, in case leaving was never detected.
+        if (!cue.held && atQuietPlace() && !importantUrgent(task, now)) {
+            val end = now + PLACE_HOLD_MS
+            dao.updateCue(cue.copy(held = true, snoozedUntil = end))
+            scheduler.set(cue.id, end)
             return
         }
         val s = settings.current()
@@ -196,10 +205,12 @@ class ReminderEngine(
     /** When a focus session on something else is running, the end of that session; null to deliver now. */
     private fun holdUntil(task: TaskEntity, focus: FocusSessionEntity?, now: Long): Long? {
         if (!FocusMath.silencesOthers(focus, now) || focus?.taskId == task.id) return null
-        val today = LocalDateTime.ofInstant(Instant.ofEpochMilli(now), ZoneId.systemDefault()).toLocalDate()
-        if (task.important && Matrix.isUrgent(task, today)) return null
+        if (importantUrgent(task, now)) return null
         return FocusMath.endsAt(focus!!)
     }
+
+    private fun importantUrgent(task: TaskEntity, now: Long) =
+        task.important && Matrix.isUrgent(task, LocalDateTime.ofInstant(Instant.ofEpochMilli(now), ZoneId.systemDefault()).toLocalDate())
 
     /** One extra nudge if the reminder was not handled. Never more than one. */
     suspend fun followUp(cueId: Long, now: Long = System.currentTimeMillis()) {
@@ -277,6 +288,8 @@ class ReminderEngine(
     companion object {
         const val FOLLOW_UP_MS = 10 * 60 * 1000L
         const val STARTED_WINDOW_MS = 30 * 60 * 1000L
+        /** Longest a quiet place holds a reminder. */
+        const val PLACE_HOLD_MS = 3 * 60 * 60 * 1000L
     }
 }
 
@@ -315,6 +328,7 @@ class SystemEventsReceiver : BroadcastReceiver() {
             c.scheduler.syncAll(fireMissed = true) { c.reminders.fire(it) }
             c.briefing.schedule()
             c.focus.restoreAfterRestart()
+            if (c.settings.current().placeAwareness) c.awareness.enable() // activity updates do not survive a restart
         }
     }
 }

@@ -7,12 +7,17 @@ import com.friday.app.data.db.CueKind
 import com.friday.app.data.db.SubtaskEntity
 import com.friday.app.data.db.TaskEntity
 import com.friday.app.data.db.TaskWithDetails
+import com.friday.app.domain.DndReasons
 import com.friday.app.domain.Habits
+import com.friday.app.domain.PlaceKind
+import com.friday.app.domain.PlaceKinds
 import com.friday.app.domain.ReminderWhy
 import com.friday.app.domain.Why
 import java.time.LocalDate
 import java.time.LocalDateTime
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.LocalTime
@@ -61,5 +66,34 @@ class SmartTest {
     @Test fun whyNullOtherwise() {
         assertNull(ReminderWhy.pick(task(1, steps), cue(CueKind.END), emptyList(), at))
         assertNull(ReminderWhy.pick(task(), cue(CueKind.DAY), emptyList(), at))
+    }
+
+    // --- Place awareness ---
+
+    @Test fun classifyMosqueIsHold() =
+        assertEquals(PlaceKind.HOLD, PlaceKinds.classify(listOf(mapOf("amenity" to "place_of_worship", "religion" to "muslim"))))
+
+    @Test fun classifyPharmacyBeatsShop() =
+        assertEquals(PlaceKind.PHARMACY, PlaceKinds.classify(listOf(mapOf("shop" to "convenience"), mapOf("amenity" to "pharmacy"))))
+
+    @Test fun classifyEmptyIsNone() = assertEquals(PlaceKind.NONE, PlaceKinds.classify(emptyList()))
+
+    @Test fun storeMatchesPharmacy() = assertTrue(PlaceKinds.matches("STORE", PlaceKind.PHARMACY))
+
+    @Test fun pharmacyDoesNotMatchStore() = assertFalse(PlaceKinds.matches("PHARMACY", PlaceKind.STORE))
+
+    @Test fun dndReasonsRestoreOnlyWhenLastReasonGoes() {
+        val both = DndReasons.add(DndReasons.add(emptySet(), "focus"), "place")
+        val afterFocus = DndReasons.remove(both, "focus")
+        assertFalse(DndReasons.shouldRestore(afterFocus))
+        assertTrue(DndReasons.shouldRestore(DndReasons.remove(afterFocus, "place")))
+    }
+
+    @Test fun undoCountsPerKind() {
+        val (once, n1) = PlaceKinds.bumpUndo(setOf("STUDY:5"), PlaceKind.HOLD)
+        assertEquals(1, n1)
+        val (twice, n2) = PlaceKinds.bumpUndo(once, PlaceKind.HOLD)
+        assertEquals(2, n2)
+        assertEquals(setOf("STUDY:5", "HOLD:2"), twice)
     }
 }

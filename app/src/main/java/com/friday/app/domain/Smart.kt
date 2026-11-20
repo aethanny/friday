@@ -51,3 +51,45 @@ object ReminderWhy {
         return null
     }
 }
+
+enum class PlaceKind { HOLD, STUDY, STORE, PHARMACY, SUPERMARKET, HOME, NONE }
+
+object PlaceKinds {
+    private val HOLD_AMENITIES = setOf("place_of_worship", "cinema", "theatre", "hospital", "clinic", "doctors")
+    private val PRIORITY = listOf(PlaceKind.HOLD, PlaceKind.PHARMACY, PlaceKind.SUPERMARKET, PlaceKind.STUDY, PlaceKind.STORE, PlaceKind.NONE)
+
+    private fun kindOf(tags: Map<String, String>): PlaceKind {
+        val amenity = tags["amenity"]; val shop = tags["shop"]
+        return when {
+            amenity in HOLD_AMENITIES -> PlaceKind.HOLD
+            amenity == "pharmacy" || shop == "chemist" -> PlaceKind.PHARMACY
+            shop == "supermarket" || shop == "convenience" -> PlaceKind.SUPERMARKET
+            amenity == "library" -> PlaceKind.STUDY
+            shop != null -> PlaceKind.STORE
+            else -> PlaceKind.NONE
+        }
+    }
+
+    /** OSM tags of nearby elements → kind of place; with several, the highest priority wins (HOLD first). */
+    fun classify(elements: List<Map<String, String>>): PlaceKind =
+        elements.map(::kindOf).minByOrNull(PRIORITY::indexOf) ?: PlaceKind.NONE
+
+    /** Errand placeType vs place: STORE takes any shop, PHARMACY/SUPERMARKET only themselves. */
+    fun matches(placeType: String, kind: PlaceKind): Boolean =
+        if (placeType == "STORE") kind == PlaceKind.STORE || kind == PlaceKind.PHARMACY || kind == PlaceKind.SUPERMARKET
+        else placeType == kind.name
+
+    /** Undo counts are stored as "KIND:n": the set with [kind] counted once more, and the new count. */
+    fun bumpUndo(undos: Set<String>, kind: PlaceKind): Pair<Set<String>, Int> {
+        val prefix = "${kind.name}:"
+        val n = (undos.firstOrNull { it.startsWith(prefix) }?.removePrefix(prefix)?.toIntOrNull() ?: 0) + 1
+        return undos.filterNot { it.startsWith(prefix) }.toSet() + "$prefix$n" to n
+    }
+}
+
+/** Why Do Not Disturb is on ("focus", "place"): the user's own setting comes back only when the last reason ends. */
+object DndReasons {
+    fun add(current: Set<String>, r: String): Set<String> = current + r
+    fun remove(current: Set<String>, r: String): Set<String> = current - r
+    fun shouldRestore(after: Set<String>): Boolean = after.isEmpty()
+}

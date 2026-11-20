@@ -553,4 +553,14 @@
     <string name="battery_title">Let reminders through battery saving</string>
     <string name="battery_sub">Some phones delay or block reminders to save battery. Tap to let FRIDAY run unrestricted.</string>
     <string name="remembered_line">Remembered: %1$s</string>
+    <string name="place_aware">Know where I am</string>
+    <string name="place_aware_sub">Quiet the phone at places like mosques and cinemas, and remind you at shops. Only your rough location is checked with OpenStreetMap when you stop somewhere.</string>
+    <string name="place_aware_denied">This needs location all the time and physical activity access. It stays off until both are allowed.</string>
+    <string name="place_check_now">Check this place now</string>
+    <string name="place_hold">Went silent here</string>
+    <string name="place_undo">Undo</string>
+    <string name="place_study">At the library. Focus on %1$s?</string>
+    <string name="place_home">Left today: %1$s</string>
+    <string name="place_kind_hold">quiet places</string>
+    <string name="place_memory_no_silence">Doesn’t want FRIDAY to go silent at %1$s</string>
 </resources>

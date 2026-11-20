@@ -16,7 +16,12 @@ import com.friday.app.data.SettingsStore
 import com.friday.app.data.TaskRepository
 import com.friday.app.data.db.FridayDatabase
 import com.friday.app.focus.FocusController
+import com.friday.app.focus.DndControl
+import com.friday.app.focus.SystemDnd
+import com.friday.app.location.OverpassClient
+import com.friday.app.location.PlaceAwareness
 import com.friday.app.location.PlaceManager
+import com.friday.app.location.VisitStore
 import com.friday.app.ui.Fmt
 import com.friday.app.reminders.Briefing
 import com.friday.app.reminders.Notifier
@@ -28,7 +33,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /** Hand-written dependency container: one instance of each service for the whole app. */
-class AppContainer(val context: Context, inMemoryDb: Boolean = false) {
+/** [dnd] is faked by device tests so they never touch the phone's real Do Not Disturb. */
+class AppContainer(val context: Context, inMemoryDb: Boolean = false, val dnd: DndControl = SystemDnd(context)) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val db = FridayDatabase.build(context, inMemoryDb)
     val settings = SettingsStore(context)
@@ -39,15 +45,17 @@ class AppContainer(val context: Context, inMemoryDb: Boolean = false) {
     val tasks = TaskRepository(db, settings, scheduler)
     val notes = NoteRepository(db)
     val memory = MemoryRepository(db)
-    val reminders = ReminderEngine(context, db, settings, scheduler, notifier, tasks, memory) { t, time ->
+    val visits = VisitStore(context, if (inMemoryDb) "place_visit_test" else "place_visit")
+    val reminders = ReminderEngine(context, db, settings, scheduler, notifier, tasks, memory, atQuietPlace = visits::holding) { t, time ->
         context.getString(R.string.habit_usual_time, t.title, Fmt.time(context, time))
     }
     val briefing = Briefing(context, settings, tasks, notifier)
-    val focus = FocusController(context, db, notifier, scheduler, onEnded = { reminders.releaseHeld() })
+    val focus = FocusController(context, db, notifier, scheduler, dnd, onEnded = { reminders.releaseHeld() })
     val parser = CommandParser()
     val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
     val ai = OnlineAssistant(context, db, settings, secrets, tasks, notes, memory, reminders, OpenAiCompatClient(http))
-    val assistant = AssistantEngine(context, db, tasks, notes, memory, parser, ai, places)
+    val assistant = AssistantEngine(context, db, tasks, notes, memory, parser, ai, places, settings)
+    val awareness = PlaceAwareness(context, db, settings, places, reminders, notifier, tasks, memory, OverpassClient(http), visits, dnd)
     val speaker = Speaker(context, settings, secrets, http)
 }
 
