@@ -1,6 +1,7 @@
 package com.friday.app.data.db
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -20,8 +21,10 @@ class Converters {
     entities = [
         TaskEntity::class, SubtaskEntity::class, CueEntity::class, NoteEntity::class,
         FocusSessionEntity::class, MessageEntity::class, PlaceEntity::class,
+        MemoryEntity::class, SnoozeLogEntity::class,
     ],
-    version = 1,
+    version = 2,
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -31,6 +34,7 @@ abstract class FridayDatabase : RoomDatabase() {
     abstract fun focus(): FocusDao
     abstract fun messages(): MessageDao
     abstract fun places(): PlaceDao
+    abstract fun memories(): MemoryDao
 
     companion object {
         // Future schema changes must add a Migration here; never fall back to wiping user data.

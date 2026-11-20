@@ -1,5 +1,6 @@
 package com.friday.app.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -78,6 +79,14 @@ data class CueEntity(
     /** Occurrence the user already handled (done, snoozed or opened): no follow-up nudge. */
     val ackKey: Long? = null,
     val firedAt: Long? = null,
+    /** AI-prepared reminder line. */
+    @ColumnInfo(defaultValue = "NULL") val smartText: String? = null,
+    /** Occurrence key [smartText] was written for. */
+    @ColumnInfo(defaultValue = "NULL") val smartKey: Long? = null,
+    /** Waiting for focus end / leaving a hold place. */
+    @ColumnInfo(defaultValue = "0") val held: Boolean = false,
+    /** Errand reminders: "STORE" | "PHARMACY" | "SUPERMARKET". */
+    @ColumnInfo(defaultValue = "NULL") val placeType: String? = null,
 )
 
 data class TaskWithDetails(
@@ -142,4 +151,27 @@ data class PlaceEntity(
     val lat: Double,
     val lng: Double,
     val radiusM: Float = 150f,
+)
+
+enum class MemorySource { USER, CHAT, HABIT }
+
+@Entity(tableName = "memories")
+data class MemoryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val text: String,
+    val source: MemorySource,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+@Entity(
+    tableName = "snooze_log",
+    foreignKeys = [ForeignKey(TaskEntity::class, ["id"], ["taskId"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("taskId")],
+)
+data class SnoozeLogEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val taskId: Long,
+    val at: Long,
+    /** Minute of day the reminder was snoozed to. */
+    val targetMin: Int,
 )

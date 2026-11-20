@@ -84,6 +84,33 @@ interface TaskDao {
 
     @Query("SELECT * FROM cues WHERE firedAt >= :since AND taskId != :exceptTaskId ORDER BY firedAt")
     suspend fun firedSince(since: Long, exceptTaskId: Long): List<CueEntity>
+
+    @Insert suspend fun logSnooze(e: SnoozeLogEntity)
+
+    @Query("SELECT * FROM snooze_log WHERE taskId = :taskId AND at >= :since ORDER BY at DESC")
+    suspend fun snoozesFor(taskId: Long, since: Long): List<SnoozeLogEntity>
+
+    @Query("DELETE FROM snooze_log WHERE taskId = :taskId")
+    suspend fun clearSnoozes(taskId: Long)
+
+    @Query("SELECT * FROM cues WHERE held = 1")
+    suspend fun heldCues(): List<CueEntity>
+}
+
+@Dao
+interface MemoryDao {
+    @Query("SELECT * FROM memories ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<MemoryEntity>>
+
+    @Query("SELECT * FROM memories ORDER BY createdAt DESC")
+    suspend fun all(): List<MemoryEntity>
+
+    @Query("SELECT * FROM memories WHERE id = :id")
+    suspend fun get(id: Long): MemoryEntity?
+
+    @Insert suspend fun insert(m: MemoryEntity): Long
+    @Update suspend fun update(m: MemoryEntity)
+    @Delete suspend fun delete(m: MemoryEntity)
 }
 
 @Dao
