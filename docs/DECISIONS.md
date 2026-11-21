@@ -105,3 +105,10 @@ CONTEXT.md is the original brief; where this file differs, this file wins.
 - Only reminders anchored to a task's start time teach "Move to <time>": snoozing a day, end or place reminder says nothing about when you like to start.
 - Pausing focus releases held reminders, like ending it does (a paused session silences nothing). Each held reminder is released on its own; one that fails gets its alarm back a minute later.
 - At a quiet place without Do Not Disturb access FRIDAY does not hold reminders: the phone isn't silent, so holding would only delay them with no notice.
+
+## v1.2 getting ready
+- Only one-off, timed tasks in the future are considered; repeating tasks and the task sheet never ask.
+- The chosen get-ready time is stored as a custom reminder (and the automatic one turned off), so no database change was needed. The checklist is written into its text when the time is chosen.
+- The online AI decides whether an event needs getting ready; offline, a known kind of event or "X at <time>" (not "remind me at …") asks. Unknown events offline get the question but no checklist.
+- The user's own "remind me to …" items come first; a suggestion sharing a meaningful word with one ("switches") is dropped.
+- Voice: the question ends with "?" so the conversation keeps listening; "okay" accepts the suggestion only when there was one.

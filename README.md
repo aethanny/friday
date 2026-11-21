@@ -7,11 +7,11 @@ FRIDAY is not a medical app and does not diagnose or treat ADHD or any other con
 
 ## Install on your phone
 
-1. Copy `FRIDAY-v1.1.apk` (in this folder) to your phone, for example over USB or Google Drive.
+1. Copy `FRIDAY-v1.2.apk` (in this folder) to your phone, for example over USB or Google Drive.
 2. Open it on the phone. If asked, allow your Files app to "Install unknown apps", then tap **Install**.
 3. Open FRIDAY, say hi, and allow notifications.
 
-Or with USB debugging on: `adb install -r FRIDAY-v1.1.apk`.
+Or with USB debugging on: `adb install -r FRIDAY-v1.2.apk`.
 
 Updates install over the old version and keep your data, **as long as they are signed with the same key**
 (see "Signing key" below).
@@ -40,7 +40,8 @@ Everything works offline. An AI key adds free conversation, **Suggest reminders*
   change **Server** and **Model**, or use *Pick from the service*.
 - Default model `gemini-flash-latest` is Google's alias for its newest Flash model.
 - What is sent: your message, the recent chat, the titles/times of open tasks, and the short list of
-  things FRIDAY remembers about you (Settings › *What FRIDAY knows about me*). Never notes, step text or locations.
+  things FRIDAY remembers about you (Settings › *What FRIDAY knows about me*). Never notes or locations. When you add an event, FRIDAY also sends its title,
+  time and the things you said you'd bring, to plan how to get ready.
   On Gemini's free plan Google may use what you send to improve its products.
 - The key is encrypted on the phone with Android Keystore and excluded from backups.
   A key stored inside an app is fine for a personal build, **not** for an app published to others.
@@ -107,6 +108,12 @@ new build can't update the installed app, and you'd have to uninstall FRIDAY (lo
 - **Reminders that wait for you**: while a focus session runs, other reminders are held and arrive after it
   (urgent + important ones still come through). A "get ready" or "start" reminder is skipped if you are
   already focusing on that task. Several reminders at once arrive as one bundle with one alert.
+- **Getting ready, like a person would** (v1.2): say "I've license lesson at 28 Nov, 8 am, remind me to
+  bring my IC". FRIDAY keeps a simple title, asks how early to alarm you (with a suggestion, e.g. "I'd say
+  1 hour, OK?"), and adds a "before you go" checklist: what to bring for that kind of event, your phone,
+  wallet and keys, and checking the switches. Calls and chores get no checklist. Works by voice too:
+  answer "okay", "two hours", "dua jam" or "no thanks". With the AI on it plans any event; offline it knows
+  lessons, exams, interviews, clinics, flights, trips, gym, meetings and events.
 - **Errand reminders**: say "remind me next time I'm at a pharmacy / store / supermarket to buy plasters"
   or "ingatkan saya bila di farmasi / kedai / pasar raya untuk beli plaster".
 - **Know where I am** (Settings › Reminders › Places, off by default): FRIDAY notices when you stop somewhere, knows
@@ -172,7 +179,8 @@ No analytics and no ads.
 
 ## What is sent where
 
-- **AI (if you set a key):** the v1.0 data plus the memory list. Never notes, step text or locations.
+- **AI (if you set a key):** the v1.0 data plus the memory list, and for a new event its title, time and the
+  things you said you'd bring. Never notes or locations.
 - **OpenStreetMap:** only the rounded location of a stop (about 11 m precision), when "Know where I am"
   is on and you have been still for about 3 minutes. Nothing else.
 
