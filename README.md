@@ -7,11 +7,11 @@ FRIDAY is not a medical app and does not diagnose or treat ADHD or any other con
 
 ## Install on your phone
 
-1. Copy `FRIDAY-v1.2.apk` (in this folder) to your phone, for example over USB or Google Drive.
+1. Copy `FRIDAY-v1.3.apk` (in this folder) to your phone, for example over USB or Google Drive.
 2. Open it on the phone. If asked, allow your Files app to "Install unknown apps", then tap **Install**.
 3. Open FRIDAY, say hi, and allow notifications.
 
-Or with USB debugging on: `adb install -r FRIDAY-v1.2.apk`.
+Or with USB debugging on: `adb install -r FRIDAY-v1.3.apk`.
 
 Updates install over the old version and keep your data, **as long as they are signed with the same key**
 (see "Signing key" below).
@@ -21,8 +21,6 @@ Updates install over the old version and keep your data, **as long as they are s
 | Where | Why |
 |---|---|
 | Settings › Reminders › *Let reminders through battery saving* | Some phones (Xiaomi, Oppo, Vivo, Samsung…) delay reminders otherwise. |
-| Focus screen › *Allow Do Not Disturb* | FRIDAY quiets the phone while you focus and puts your setting back after. |
-| Settings › Focus › *Distraction shield* | Pick apps to keep out during focus; needs Usage access + Display over other apps. |
 | Settings › Reminders › *Places* | Save Home/Campus/Work with "I'm here now" for "when I leave/arrive" reminders. |
 | Settings › Assistant › *AI connection* | Optional online brain (see below). |
 | Settings › Assistant › *Voice* | Natural voice, and "Use FRIDAY as phone assistant" (long-press power/home). |
@@ -93,27 +91,26 @@ new build can't update the installed app, and you'd have to uninstall FRIDAY (lo
   1 h, Tomorrow) or "Move to <time>" once FRIDAY has learned your usual time.
   One follow-up nudge if ignored, quiet hours (silent delivery), exact alarms, and reminders restored
   after reboot, clock and time-zone changes. Times are wall-clock, so 9 PM stays 9 PM when you travel.
-- **Focus**: 5/15/25/45/custom minutes; the timer survives closing the app. Do Not Disturb during
-  focus, and a distraction shield that asks for one breath before letting you into a distracting app.
-  At the end, "How did it go?" with no guilt, and "Where did you stop?".
 - **Assistant**: offline English/Malay command understanding, quick answers ("what do I have today?",
   "I have 20 minutes", "I have too many things to do"), optional online AI with validated actions,
-  Undo, and one-tap confirmation for changes. It never deletes. Siri-style voice conversation.
+  Undo, and one-tap confirmation for changes. It never deletes. Siri-style voice conversation: tap the
+  mic on Home and FRIDAY listens, answers aloud and listens again when it asks you something.
 - **Inbox & Notes**: capture now, sort later. Turn a note into a task or a reminder, or keep it as a note.
 - **What FRIDAY knows about me**: a list of facts the AI remembered (for example "I study best in the
   morning"). You can read, edit and delete every one. The AI uses it, and thinks before it replies.
 - **Reminders that say why**: a reminder tells you why it matters, with two buttons: the main action and
   either "Snooze…" (5 min, 15 min, 1 h, Tomorrow) or "Move to <time>" once FRIDAY has learned when you
   usually snooze a start reminder to.
-- **Reminders that wait for you**: while a focus session runs, other reminders are held and arrive after it
-  (urgent + important ones still come through). A "get ready" or "start" reminder is skipped if you are
-  already focusing on that task. Several reminders at once arrive as one bundle with one alert.
+- **Reminders arrive together**: several reminders at once arrive as one bundle with one alert.
 - **Getting ready, like a person would** (v1.2): say "I've license lesson at 28 Nov, 8 am, remind me to
   bring my IC". FRIDAY keeps a simple title, asks how early to alarm you (with a suggestion, e.g. "I'd say
   1 hour, OK?"), and adds a "before you go" checklist: what to bring for that kind of event, your phone,
   wallet and keys, and checking the switches. Calls and chores get no checklist. Works by voice too:
   answer "okay", "two hours", "dua jam" or "no thanks". With the AI on it plans any event; offline it knows
   lessons, exams, interviews, clinics, flights, trips, gym, meetings and events.
+- **Events are not to-dos** (v1.3): a lesson or appointment only reminds you. It stays off the Now card,
+  is never "overdue", its reminder says "Got it" instead of "Mark done", and it leaves the list once it's
+  over. FRIDAY decides when you add it; flip the **Event** switch on the task if it guessed wrong.
 - **Errand reminders**: say "remind me next time I'm at a pharmacy / store / supermarket to buy plasters"
   or "ingatkan saya bila di farmasi / kedai / pasar raya untuk beli plaster".
 - **Know where I am** (Settings › Reminders › Places, off by default): FRIDAY notices when you stop somewhere, knows
@@ -122,7 +119,7 @@ new build can't update the installed app, and you'd have to uninstall FRIDAY (lo
   **Do Not Disturb access** (only to say it went silent).
 - **Daily summary** at 8:00, skipped on days with nothing to report.
 - **Settings**: name, theme (system/light/dark), language (English/Malay, Android 13+), reminders,
-  quiet hours, daily summary, focus, distraction shield, places, AI, voice, privacy (clear chat, delete
+  quiet hours, daily summary, places, AI, voice, privacy (clear chat, delete
   all data) and about.
 
 ## Project structure
@@ -133,9 +130,8 @@ app/src/main/java/com/friday/app/
   MainActivity.kt     single activity; handles notification, shortcut and assistant launches
   ai/                 CommandParser (offline EN/MS), AssistantEngine, Online (OpenAI-compatible AI)
   data/               Room database, repositories, DataStore settings, Keystore secret store
-  domain/             pure logic: matrix ranking, schedules and repeats, quiet hours, focus timing
-  focus/              focus sessions, Do Not Disturb, distraction shield
-  location/           saved places and geofences
+  domain/             pure logic: matrix ranking, schedules and repeats, quiet hours, getting ready
+  location/           saved places, geofences, place awareness and Do Not Disturb at quiet places
   reminders/          alarms, reminder engine, notifications, snooze picker, daily summary
   voice/              speech output (ElevenLabs / phone TTS) and in-app listening
   ui/                 theme, shared components, screens, settings, navigation
@@ -155,22 +151,22 @@ No analytics and no ads.
 
 ## Test results (Pixel 6 Pro emulator, Android 16)
 
-- 65 unit tests pass: the offline parser in English, Malay and mixed sentences; matrix ranking;
-  schedules, repeats and time zones; quiet hours; focus timing; and AI action validation with the
+- 74 unit tests pass: the offline parser in English, Malay and mixed sentences; matrix ranking;
+  schedules, repeats and time zones; quiet hours; events and getting ready; spoken answers; and AI action validation with the
   OpenAI-compatible client against a fake server.
-- 54 device tests pass (two focus tests skip themselves while a real focus session is running), including:
+- 42 device tests pass (v1.3), including:
   - task create/edit/complete/delete with undo, and repeating-task history
   - data surviving a database restart
   - reminders firing once, snooze, Mark done and the single follow-up nudge
   - the notification snooze button reaching the receiver
-  - the focus countdown after reopening
+  - the database upgrade from v1 and v2 with data kept
+  - an event asking how early to get ready, with its checklist
   - the daily summary being skipped on empty days
   - the assistant working without online AI
   - light/dark theme switching
 - Checked by hand on the emulator:
   - a real 2-minute reminder rang on time
-  - the distraction shield and its breath pause
-  - Do Not Disturb during focus
+  - v1.3 installed over v1.1 with data kept; the license-lesson and dentist examples; the Home mic
   - FRIDAY as the phone's assistant (assist key)
   - microphone permission and listening
   - phone text-to-speech
@@ -187,10 +183,10 @@ No analytics and no ads.
 ## Known limitations
 
 - **Lecture halls** are rarely mapped in OpenStreetMap, so FRIDAY can't tell you are in one. Put the
-  phone on silent yourself, or start Focus with Do Not Disturb there.
+  phone on silent yourself there.
 - **Time limits:** quiet-place silence and held reminders end after 3 hours at most.
-- **Downgrading** from v1.1 to v1.0 is not possible without uninstalling (the database was upgraded), which
-  erases your data. Keep the v1.1 APK.
+- **Downgrading** to an older version is not possible without uninstalling (the database was upgraded in
+  v1.1 and v1.3), which erases your data. Keep the APK of the version you use.
 
 - **Voice:** speech recognition couldn't be heard on the emulator (it has no microphone input).
   Listening starts and the system mic indicator turns on; real recognition needs a phone.

@@ -112,3 +112,10 @@ CONTEXT.md is the original brief; where this file differs, this file wins.
 - The online AI decides whether an event needs getting ready; offline, a known kind of event or "X at <time>" (not "remind me at …") asks. Unknown events offline get the question but no checklist.
 - The user's own "remind me to …" items come first; a suggestion sharing a meaningful word with one ("switches") is dropped.
 - Voice: the question ends with "?" so the conversation keeps listening; "okay" accepts the suggestion only when there was one.
+
+## v1.3 events and a simpler app
+- Focus sessions and the distraction shield were removed to match the MVP brief (and drop the usage-access, overlay and foreground-service permissions). Do Not Disturb control moved to location/, used only by quiet places. The focus_sessions table is kept, unused, so no migration was needed; on start FRIDAY restores Do Not Disturb if a session was running at update time.
+- `event` (database v3): something to attend. Left out of the Now ranking, never overdue, "Got it" instead of "Mark done". Set when the get-ready plan recognises the task (AI or offline rules), editable with the Event switch.
+- An event leaves the lists as soon as it's over but is only marked finished 4 h later, so a reminder held at a quiet place (3 h at most) still arrives.
+- The Home mic opens the Assistant already listening (the real voice conversation) instead of plain dictation; the listen request is handled once, so returning to the tab doesn't start the mic again.
+- "I have too many things" and "I forgot what I was doing" now offer "Open it" instead of a focus timer.
