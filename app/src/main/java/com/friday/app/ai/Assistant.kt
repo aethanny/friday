@@ -12,16 +12,13 @@ import com.friday.app.data.TaskSnapshot
 import com.friday.app.data.db.CueAnchor
 import com.friday.app.data.db.CueEntity
 import com.friday.app.data.db.CueKind
-import com.friday.app.data.db.FocusOutcome
 import com.friday.app.data.db.Repeat
 import com.friday.app.domain.Prep
 import com.friday.app.domain.PrepPlan
 import com.friday.app.domain.Schedule
-import com.friday.app.data.db.FocusSessionEntity
 import com.friday.app.data.db.FridayDatabase
 import com.friday.app.data.db.TaskEntity
 import com.friday.app.data.db.TaskWithDetails
-import com.friday.app.domain.FocusMath
 import com.friday.app.domain.Matrix
 import com.friday.app.ui.Fmt
 import java.time.LocalDateTime
@@ -49,9 +46,6 @@ data class EngineResult(
     val undo: Undo? = null,
     val proposal: Proposal? = null,
     val taskId: Long? = null,
-    /** Open the focus screen for this task (0 = no task). */
-    val focusTaskId: Long? = null,
-    val focusMinutes: Int? = null,
     val remote: Boolean = false,
     val lang: Lang = Lang.EN,
     /** The online AI could not answer; [text] says why. */
@@ -67,7 +61,6 @@ fun Context.inLang(lang: Lang): Context {
 data class Recovery(
     val task: TaskWithDetails?,
     val title: String,
-    val session: FocusSessionEntity?,
     val nextStep: String?,
     val at: Long,
 )
@@ -180,6 +173,8 @@ class AssistantEngine(
         val id = tasks.save(
             TaskEntity(
                 title = (if (askPrep) plan?.title else null) ?: p.title,
+                // Recognised as something to attend (not "submit X at 11 pm"): it only reminds, no to-do.
+                event = askPrep && (plan?.leadMin ?: 0) > 0,
                 important = p.important,
                 dueDate = p.date,
                 dueTime = p.time,
@@ -299,12 +294,6 @@ class AssistantEngine(
                     lang = lang,
                 )
             }
-            START_FOCUS.find(text) != null -> {
-                val m = START_FOCUS.find(text)!!
-                val name = m.groupValues[1].trim()
-                val t = if (name.isNotBlank()) findTask(name) else Matrix.rankForNow(tasks.openTasks().map { it.task }, n).firstOrNull()
-                EngineResult(r.getString(R.string.opening_focus, t?.title ?: r.getString(R.string.focus)), focusTaskId = t?.id ?: 0, lang = lang)
-            }
             HELLO.matches(text.lowercase().trim()) -> EngineResult(r.getString(R.string.hello_reply), lang = lang)
             THANKS.containsMatchIn(text) -> EngineResult(r.getString(R.string.thanks_reply), lang = lang)
             HELP.containsMatchIn(text) -> EngineResult(r.getString(R.string.help_reply), lang = lang)
@@ -321,40 +310,21 @@ class AssistantEngine(
             ?: open.firstOrNull { t -> q.split(" ").filter { it.length > 2 }.let { w -> w.isNotEmpty() && w.all { t.title.lowercase().contains(it) } } }
     }
 
+    /** The task touched last (opened, edited, a step ticked) and its next step. */
     suspend fun recovery(): Recovery? {
-        val session = db.focus().latest()
-        val active = db.tasks().lastActive()
-        val sessionAt = session?.let { it.endedAt ?: it.startedAt } ?: 0L
-        val activeAt = active?.lastActiveAt ?: 0L
-        if (session == null && active == null) return null
-        val useSession = session != null && sessionAt >= activeAt - 60_000
-        val taskId = if (useSession) session?.taskId else active?.id
-        val details = taskId?.let { tasks.details(it) }
-        val title = details?.task?.title ?: session?.taskTitle ?: return null
-        val next = details?.subtasks?.sortedBy { it.position }?.firstOrNull { !it.done }?.title
-        return Recovery(details, title, if (useSession || session?.taskId == taskId) session else null, next, maxOf(sessionAt, activeAt))
+        val active = db.tasks().lastActive() ?: return null
+        val details = tasks.details(active.id) ?: return null
+        val next = details.subtasks.sortedBy { it.position }.firstOrNull { !it.done }?.title
+        return Recovery(details, details.task.title, next, active.lastActiveAt ?: 0L)
     }
 
     private suspend fun recoveryReply(r: Context, lang: Lang): EngineResult {
         val rec = recovery() ?: return EngineResult(r.getString(R.string.recovery_empty), lang = lang)
-        return EngineResult(describeRecovery(r, rec), chips = listOf(r.getString(R.string.chip_continue_focus)), focusTaskId = null, taskId = rec.task?.task?.id, lang = lang)
+        return EngineResult(describeRecovery(r, rec), chips = listOf(r.getString(R.string.chip_open_task)), taskId = rec.task?.task?.id, lang = lang)
     }
 
     fun describeRecovery(r: Context, rec: Recovery): String {
         val parts = mutableListOf(r.getString(R.string.recovery_working_on, rec.title))
-        rec.session?.let { s ->
-            val ago = ((System.currentTimeMillis() - (s.endedAt ?: s.startedAt)) / 60_000).toInt().coerceAtLeast(0)
-            val how = when (s.outcome) {
-                FocusOutcome.COMPLETED -> r.getString(R.string.outcome_completed_lc)
-                FocusOutcome.PROGRESS -> r.getString(R.string.outcome_progress_lc)
-                FocusOutcome.DISTRACTED -> r.getString(R.string.outcome_distracted_lc)
-                null -> null
-            }
-            parts += if (s.endedAt == null) r.getString(R.string.recovery_session_running, Fmt.duration(r, s.plannedMin))
-            else r.getString(R.string.recovery_session_ended, Fmt.duration(r, (FocusMath.elapsedMs(s, s.endedAt) / 60_000).toInt().coerceAtLeast(1)), Fmt.duration(r, ago.coerceAtLeast(1))) +
-                (how?.let { " " + r.getString(R.string.recovery_outcome, it) } ?: "")
-            s.stopNote?.let { parts += r.getString(R.string.recovery_stopped_at, it) }
-        }
         rec.nextStep?.let { parts += r.getString(R.string.recovery_next_step, it) }
         parts += r.getString(R.string.recovery_continue_q)
         return parts.joinToString("\n\n")
@@ -363,7 +333,8 @@ class AssistantEngine(
     private suspend fun todayReply(r: Context, lang: Lang, n: LocalDateTime): EngineResult {
         val today = n.toLocalDate()
         val open = tasks.openTasks().map { it.task }
-        val ranked = Matrix.rankForNow(open.filter { it.dueDate != null && !it.dueDate.isAfter(today) }, n)
+        val ranked = Matrix.rankForNow(open.filter { it.dueDate != null && !it.dueDate.isAfter(today) }, n) +
+            open.filter { it.event && it.dueDate == today && !Matrix.isOver(it, n) }.sortedBy { it.dueTime }
         if (ranked.isEmpty()) return EngineResult(r.getString(R.string.today_empty), lang = lang)
         val head = r.resources.getQuantityString(R.plurals.today_count, ranked.size, ranked.size)
         val list = ranked.take(5).joinToString("\n") { t -> (if (t.important) "★ " else "• ") + t.title + (t.dueTime?.let { " · " + Fmt.time(r, it) } ?: "") + if (Matrix.isOverdue(t, n)) " · " + r.getString(R.string.overdue).lowercase() else "" }
@@ -375,10 +346,8 @@ class AssistantEngine(
             ?: return EngineResult(r.getString(R.string.overwhelmed_empty), lang = lang)
         return EngineResult(
             r.getString(R.string.overwhelmed_reply, top.title),
-            chips = listOf(r.getString(R.string.chip_focus_5)),
-            focusTaskId = null,
+            chips = listOf(r.getString(R.string.chip_open_task)),
             taskId = top.id,
-            focusMinutes = 5,
             lang = lang,
         )
     }
@@ -389,7 +358,7 @@ class AssistantEngine(
             ?: return EngineResult(r.getString(R.string.free_time_empty), lang = lang)
         val text = if ((fit.durationMin ?: Int.MAX_VALUE) <= minutes) r.getString(R.string.free_time_fits, fit.title, Fmt.duration(r, minutes))
         else r.getString(R.string.free_time_start, fit.title, Fmt.duration(r, minutes))
-        return EngineResult(text, chips = listOf(r.getString(R.string.chip_focus_n, Fmt.duration(r, minutes))), taskId = fit.id, focusMinutes = minutes, lang = lang)
+        return EngineResult(text, chips = listOf(r.getString(R.string.chip_open_task)), taskId = fit.id, lang = lang)
     }
 
     companion object {
@@ -402,7 +371,6 @@ class AssistantEngine(
         val TOO_MANY = Regex("(too many things|so much to do|overwhelmed|i'?m stressed|banyak sangat|terlalu banyak|penat sangat|serabut)", I)
         val FREE_TIME = Regex("(?:i have|i've got|got|saya ada|aku ada|ada)\\s+(\\d+)\\s*(minutes?|mins?|hours?|hrs?|minit|jam)\\b", I)
         val DONE_WITH = Regex("^(?:i(?:'ve| have)? (?:finished|completed|done)|i'?m done with|mark (?:as )?done|done with|dah siap|sudah siap|siap)\\s+(.+)$", I)
-        val START_FOCUS = Regex("^(?:start (?:a )?focus(?: session)?|let'?s focus|focus|mula fokus|nak fokus)(?:\\s+(?:on|pada|untuk)\\s+(.+))?$", I)
         val HELLO = Regex("^(hi|hello|hey|hey friday|hi friday|hai|helo|assalamualaikum|salam)[!. ]*$")
         val THANKS = Regex("^(thanks|thank you|thx|terima kasih|tq)\\b", I)
         val HELP = Regex("^(help|what can you do|tolong|apa kau boleh buat|apa awak boleh buat)\\b", I)

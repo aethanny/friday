@@ -12,14 +12,8 @@
     <!-- Personal build: lets the user exempt FRIDAY from battery optimisation so reminders aren't delayed -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <!-- Focus: Do Not Disturb (granted by the user in system settings) -->
+    <!-- Quiet places: Do Not Disturb (granted by the user in system settings) -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
-
-    <!-- Distraction shield: only during focus sessions, each granted by the user in system settings -->
-    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <!-- Location reminders: asked only when you save your first place -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -36,11 +30,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <queries>
-        <!-- Lists apps the user can add to the distraction shield -->
-        <intent>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LAUNCHER" />
-        </intent>
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
         </intent>
@@ -89,17 +78,8 @@
             android:taskAffinity=""
             android:theme="@style/Theme.Friday.Translucent" />
 
-        <activity
-            android:name=".focus.ShieldActivity"
-            android:exported="false"
-            android:excludeFromRecents="true"
-            android:launchMode="singleTask"
-            android:taskAffinity="com.friday.app.shield"
-            android:theme="@style/Theme.Friday" />
-
         <receiver android:name=".reminders.ReminderReceiver" android:exported="false" />
         <receiver android:name=".reminders.BriefingReceiver" android:exported="false" />
-        <receiver android:name=".focus.FocusEndReceiver" android:exported="false" />
         <receiver android:name=".location.GeofenceReceiver" android:exported="false" />
         <receiver android:name=".location.StillnessReceiver" android:exported="false" />
         <receiver android:name=".location.VisitCheckReceiver" android:exported="false" />
@@ -113,14 +93,5 @@
                 <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
-
-        <service
-            android:name=".focus.ShieldService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Focus distraction shield: runs only during a user-started focus session to bring the user back from apps they chose to avoid." />
-        </service>
     </application>
 </manifest>

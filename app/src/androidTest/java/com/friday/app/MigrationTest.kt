@@ -42,4 +42,20 @@ class MigrationTest {
         db.query("SELECT text FROM notes WHERE id = 5").use { assertTrue(it.moveToFirst()); assertEquals("idea", it.getString(0)) }
         db.query("SELECT COUNT(*) FROM memories").use { assertTrue(it.moveToFirst()); assertEquals(0, it.getInt(0)) }
     }
+
+    @Test
+    fun v2TasksAreNotEvents() {
+        val name = "migration-test-3"
+        helper.createDatabase(name, 2).apply {
+            execSQL(
+                "INSERT INTO tasks (id, title, notes, important, dueDate, dueTime, repeat, repeatDays, autoPrep, createdAt, postponeCount) " +
+                    "VALUES (7, 'Gym', '', 0, 20000, 1140, 'NONE', 0, 1, 1, 0)",
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(name, 3, true)
+        db.query("SELECT title, event FROM tasks WHERE id = 7").use {
+            assertTrue(it.moveToFirst()); assertEquals("Gym", it.getString(0)); assertEquals(0, it.getInt(1))
+        }
+    }
 }

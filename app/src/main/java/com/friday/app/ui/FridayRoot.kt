@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavController
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -75,14 +76,12 @@ import com.friday.app.ui.components.Ic
 import com.friday.app.ui.components.LocalTabBarHeight
 import com.friday.app.ui.components.TextAction
 import com.friday.app.ui.screens.AssistantScreen
-import com.friday.app.ui.screens.FocusScreen
 import com.friday.app.ui.screens.HomeScreen
 import com.friday.app.ui.screens.NotesScreen
 import com.friday.app.ui.screens.OnboardingScreen
 import com.friday.app.ui.screens.TaskEditorScreen
 import com.friday.app.ui.screens.TasksScreen
 import com.friday.app.ui.settings.SettingsScreen
-import com.friday.app.ui.settings.ShieldSettingsScreen
 import com.friday.app.ui.theme.Friday
 import com.friday.app.ui.theme.FridayTheme
 import kotlinx.coroutines.CoroutineScope
@@ -151,8 +150,8 @@ private fun AppNav(pendingRoute: StateFlow<String?>, consumeRoute: () -> Unit) {
         consumeRoute()
         when {
             p.substringBefore("?") in TABS -> nav.navigateTab(p)
-            // Coming back from a notification or the shield: one focus screen, directly above Home.
-            p.startsWith("focus") -> nav.navigate(p) { popUpTo(nav.graph.startDestinationId); launchSingleTop = true }
+            // Old notifications or shortcuts may still point at the removed focus screen.
+            p.startsWith("focus") -> Unit
             else -> nav.navigate(p) { launchSingleTop = true }
         }
     }
@@ -175,16 +174,8 @@ private fun AppNav(pendingRoute: StateFlow<String?>, consumeRoute: () -> Unit) {
                 composable("task/{id}", listOf(navArgument("id") { type = NavType.LongType })) {
                     TaskEditorScreen(nav, it.arguments?.getLong("id") ?: 0L)
                 }
-                composable("focus") { FocusScreen(nav, taskId = null, minutes = null) }
-                composable(
-                    "focus/{taskId}?min={min}",
-                    listOf(navArgument("taskId") { type = NavType.LongType }, navArgument("min") { type = NavType.IntType; defaultValue = 0 }),
-                ) {
-                    FocusScreen(nav, taskId = it.arguments?.getLong("taskId"), minutes = it.arguments?.getInt("min")?.takeIf { m -> m > 0 })
-                }
                 composable("notes") { NotesScreen(nav) }
                 composable("settings") { SettingsScreen(nav) }
-                composable("settings/shield") { ShieldSettingsScreen(nav) }
                 composable("settings/ai") { AiSettingsScreen(nav) }
                 composable("settings/voice") { VoiceSettingsScreen(nav) }
                 composable("settings/places") { PlacesScreen(nav) }
@@ -225,7 +216,7 @@ private fun AppNav(pendingRoute: StateFlow<String?>, consumeRoute: () -> Unit) {
     }
 }
 
-fun NavHostController.navigateTab(route: String) = navigate(route) {
+fun NavController.navigateTab(route: String) = navigate(route) {
     popUpTo(graph.startDestinationId) { saveState = true }
     launchSingleTop = true
     restoreState = true

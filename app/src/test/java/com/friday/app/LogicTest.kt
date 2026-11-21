@@ -3,10 +3,8 @@ package com.friday.app
 import com.friday.app.data.db.CueAnchor
 import com.friday.app.data.db.CueEntity
 import com.friday.app.data.db.CueKind
-import com.friday.app.data.db.FocusSessionEntity
 import com.friday.app.data.db.Repeat
 import com.friday.app.data.db.TaskEntity
-import com.friday.app.domain.FocusMath
 import com.friday.app.domain.Matrix
 import com.friday.app.domain.Quadrant
 import com.friday.app.domain.QuietHours
@@ -114,33 +112,23 @@ class LogicTest {
         assertEquals(now, QuietHours.nextAllowed(now, 23 * 60, 7 * 60))
     }
 
-    @Test fun focusCountdownSurvivesReopenAndPause() {
-        val start = 1_000_000L
-        val s = FocusSessionEntity(taskId = 1, taskTitle = "x", plannedMin = 25, startedAt = start)
-        // App closed and reopened 10 minutes later: remaining time comes from timestamps.
-        assertEquals(15 * 60_000L, FocusMath.remainingMs(s, start + 10 * 60_000L))
-        val paused = s.copy(pausedAt = start + 10 * 60_000L)
-        assertEquals(15 * 60_000L, FocusMath.remainingMs(paused, start + 30 * 60_000L))
-        assertNull(FocusMath.endsAt(paused))
-        val resumed = paused.copy(pausedAt = null, pausedTotalMs = 20 * 60_000L)
-        assertEquals(start + 45 * 60_000L, FocusMath.endsAt(resumed))
-        assertEquals(0L, FocusMath.remainingMs(s, start + 99 * 60_000L))
-    }
-
-    @Test fun onlyARunningSessionSilencesOtherReminders() {
-        val start = 1_000_000L
-        val s = FocusSessionEntity(taskId = 1, taskTitle = "x", plannedMin = 25, startedAt = start)
-        assertTrue(FocusMath.silencesOthers(s, start + 60_000))
-        // Paused, finished-but-not-checked-in, or no session: reminders ring normally.
-        assertFalse(FocusMath.silencesOthers(s.copy(pausedAt = start + 60_000), start + 120_000))
-        assertFalse(FocusMath.silencesOthers(s, start + 26 * 60_000L))
-        assertFalse(FocusMath.silencesOthers(null, start))
-    }
-
     @Test fun monthlyKeepsAnchorDay() {
         val t = task(due = LocalDate.of(2027, 1, 31), repeat = Repeat.MONTHLY, days = 31)
         val feb = Schedule.nextOccurrence(t, LocalDate.of(2027, 1, 31))
         assertEquals(LocalDate.of(2027, 2, 28), feb)
         assertEquals(LocalDate.of(2027, 3, 31), Schedule.nextOccurrence(t.copy(dueDate = feb), feb!!))
+    }
+
+    @Test fun eventsOnlyRemind() {
+        val now = LocalDateTime.of(2026, 11, 21, 10, 0)
+        val lesson = TaskEntity(id = 1, title = "License lesson", dueDate = LocalDate.of(2026, 11, 21), dueTime = java.time.LocalTime.of(9, 0), event = true)
+        val chore = TaskEntity(id = 2, title = "Submit report", dueDate = LocalDate.of(2026, 11, 21), dueTime = java.time.LocalTime.of(9, 0))
+        assertFalse(Matrix.isOverdue(lesson, now)) // 9:00 passed, but an event is never overdue
+        assertTrue(Matrix.isOverdue(chore, now))
+        assertEquals(listOf(2L), Matrix.rankForNow(listOf(lesson, chore), now).map { it.id }) // not a to-do on the Now card
+        assertTrue(Matrix.isOver(lesson, now))
+        assertFalse(Matrix.isOver(lesson, now.minusHours(2)))
+        assertFalse(Matrix.isOver(lesson.copy(durationMin = 120), now)) // still on until 11:00
+        assertFalse(Matrix.isOver(chore, now)) // only events end by themselves
     }
 }

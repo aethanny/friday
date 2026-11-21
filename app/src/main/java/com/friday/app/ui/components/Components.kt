@@ -699,14 +699,3 @@ fun Card(modifier: Modifier = Modifier, padding: Dp = 20.dp, content: @Composabl
     )
 }
 
-/** The focus countdown ring: a track with the elapsed share drawn from 12 o'clock. */
-@Composable
-fun ProgressRing(progress: Float, color: Color, modifier: Modifier = Modifier, track: Color = Friday.colors.fill, stroke: Dp = 12.dp) {
-    Canvas(modifier) {
-        val w = stroke.toPx()
-        val topLeft = Offset(w / 2, w / 2)
-        val arc = Size(size.width - w, size.height - w)
-        drawArc(track, 0f, 360f, false, topLeft, arc, style = Stroke(w))
-        drawArc(color, -90f, 360f * progress, false, topLeft, arc, style = Stroke(w, cap = StrokeCap.Round))
-    }
-}

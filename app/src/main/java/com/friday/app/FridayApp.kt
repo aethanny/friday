@@ -15,9 +15,9 @@ import com.friday.app.data.SecretStore
 import com.friday.app.data.SettingsStore
 import com.friday.app.data.TaskRepository
 import com.friday.app.data.db.FridayDatabase
-import com.friday.app.focus.FocusController
-import com.friday.app.focus.DndControl
-import com.friday.app.focus.SystemDnd
+import com.friday.app.location.DndControl
+import com.friday.app.location.SystemDnd
+import com.friday.app.location.Dnd
 import com.friday.app.location.AndroidPlaceSystem
 import com.friday.app.location.OverpassClient
 import com.friday.app.location.PlaceAwareness
@@ -58,7 +58,6 @@ class AppContainer(
         context.getString(R.string.habit_usual_time, t.title, Fmt.time(context, time))
     }
     val briefing = Briefing(context, settings, tasks, notifier)
-    val focus = FocusController(context, db, notifier, scheduler, dnd, onEnded = { reminders.releaseHeld() })
     val parser = CommandParser()
     val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
     val ai = OnlineAssistant(context, db, settings, secrets, tasks, notes, memory, reminders, OpenAiCompatClient(http))
@@ -79,6 +78,9 @@ class FridayApp : Application() {
         container.notifier.createChannels()
         container.tasks.onSaved = { container.scope.launch { container.ai.prepareLines() } }
         container.scope.launch {
+            // Focus mode was removed in v1.3: put back the user's Do Not Disturb if a session was running at update time.
+            Dnd.restore(this@FridayApp, "focus")
+            container.tasks.finishPastEvents()
             container.scheduler.syncAll(fireMissed = false)
             container.briefing.schedule()
             container.ai.prepareLines()

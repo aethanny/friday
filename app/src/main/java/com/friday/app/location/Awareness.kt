@@ -20,8 +20,6 @@ import com.friday.app.domain.Clip
 import com.friday.app.domain.Matrix
 import com.friday.app.domain.PlaceKind
 import com.friday.app.domain.PlaceKinds
-import com.friday.app.focus.Dnd
-import com.friday.app.focus.DndControl
 import com.friday.app.reminders.Channels
 import com.friday.app.reminders.Notifier
 import com.friday.app.reminders.ReminderEngine
@@ -219,8 +217,8 @@ class PlaceAwareness(
             }
             PlaceKind.STUDY -> {
                 val t = Matrix.rankForNow(tasks.openTasks().map { it.task }, today).firstOrNull() ?: return
-                val start = notifier.openAppIntent(905, route = "focus/${t.id}")
-                system.note(Channels.BRIEFING, Clip.note(ctx.getString(R.string.place_study, Clip.title(t.title))), ctx.getString(R.string.start_focus), start, start)
+                val open = notifier.openAppIntent(905, route = "task/${t.id}")
+                system.note(Channels.BRIEFING, Clip.note(ctx.getString(R.string.place_study, Clip.title(t.title))), ctx.getString(R.string.chip_open_task), open, open)
             }
             PlaceKind.STORE, PlaceKind.PHARMACY, PlaceKind.SUPERMARKET ->
                 db.tasks().openTasks().flatMap { it.cues }
@@ -245,7 +243,7 @@ class PlaceAwareness(
         system.cancelCap()
         system.unwatchVisit()
         if (v.holding) { dnd.restore(REASON); system.cancelNote() }
-        reminders.releaseHeld(now) // the focus rule holds again whatever a running focus session still covers
+        reminders.releaseHeld(now)
     }
 
     fun holding(now: Long = System.currentTimeMillis()): Boolean = visits.holding(now)

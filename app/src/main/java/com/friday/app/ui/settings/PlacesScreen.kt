@@ -6,11 +6,11 @@ import android.location.Location
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.Settings
-import com.friday.app.focus.Dnd
 import android.os.Build
 import androidx.core.content.ContextCompat
 import com.friday.app.BuildConfig
 import com.friday.app.data.AppSettings
+import com.friday.app.location.Dnd
 import com.friday.app.ui.components.SwitchRow
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts

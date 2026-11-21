@@ -27,9 +27,6 @@ data class AppSettings(
     val dayReminderMin: Int = 9 * 60,
     val briefingEnabled: Boolean = true,
     val briefingMin: Int = 8 * 60,
-    val focusDefaultMin: Int = 25,
-    val focusDnd: Boolean = true,
-    val shieldApps: Set<String> = emptySet(),
     val readAloud: Boolean = false,
     val voiceConversation: Boolean = true,
     val elevenVoiceId: String = DEFAULT_ELEVEN_VOICE,
@@ -67,9 +64,6 @@ class SettingsStore(private val context: Context) {
         val dayReminder = intPreferencesKey("day_reminder")
         val briefing = booleanPreferencesKey("briefing")
         val briefingTime = intPreferencesKey("briefing_time")
-        val focusMin = intPreferencesKey("focus_min")
-        val focusDnd = booleanPreferencesKey("focus_dnd")
-        val shieldApps = stringSetPreferencesKey("shield_apps")
         val readAloud = booleanPreferencesKey("read_aloud")
         val voiceConversation = booleanPreferencesKey("voice_conversation")
         val elevenVoice = stringPreferencesKey("eleven_voice")
@@ -96,9 +90,6 @@ class SettingsStore(private val context: Context) {
             dayReminderMin = p[K.dayReminder] ?: d.dayReminderMin,
             briefingEnabled = p[K.briefing] ?: d.briefingEnabled,
             briefingMin = p[K.briefingTime] ?: d.briefingMin,
-            focusDefaultMin = p[K.focusMin] ?: d.focusDefaultMin,
-            focusDnd = p[K.focusDnd] ?: d.focusDnd,
-            shieldApps = p[K.shieldApps] ?: d.shieldApps,
             readAloud = p[K.readAloud] ?: d.readAloud,
             voiceConversation = p[K.voiceConversation] ?: d.voiceConversation,
             elevenVoiceId = p[K.elevenVoice] ?: d.elevenVoiceId,
@@ -129,9 +120,6 @@ class SettingsStore(private val context: Context) {
     suspend fun setDayReminder(min: Int) = set(K.dayReminder, min)
     suspend fun setBriefing(v: Boolean) = set(K.briefing, v)
     suspend fun setBriefingTime(min: Int) = set(K.briefingTime, min)
-    suspend fun setFocusMin(v: Int) = set(K.focusMin, v)
-    suspend fun setFocusDnd(v: Boolean) = set(K.focusDnd, v)
-    suspend fun setShieldApps(v: Set<String>) = set(K.shieldApps, v)
     suspend fun setReadAloud(v: Boolean) = set(K.readAloud, v)
     suspend fun setVoiceConversation(v: Boolean) = set(K.voiceConversation, v)
     suspend fun setElevenVoice(v: String) = set(K.elevenVoice, v.trim())

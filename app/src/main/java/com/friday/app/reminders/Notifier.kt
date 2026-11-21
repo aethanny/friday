@@ -12,9 +12,7 @@ import com.friday.app.MainActivity
 import com.friday.app.R
 import com.friday.app.data.db.CueEntity
 import com.friday.app.data.db.CueKind
-import com.friday.app.data.db.FocusSessionEntity
 import com.friday.app.data.db.TaskEntity
-import com.friday.app.domain.FocusMath
 import com.friday.app.ui.Fmt
 import java.time.LocalTime
 
@@ -22,16 +20,11 @@ object Channels {
     const val REMINDERS = "reminders"
     const val REMINDERS_VIBRATE = "reminders_vibrate"
     const val QUIET = "quiet"
-    const val FOCUS = "focus"
-    const val FOCUS_DONE = "focus_done"
     const val BRIEFING = "briefing"
 }
 
 object NotificationIds {
-    const val FOCUS = 1
-    const val FOCUS_DONE = 2
     const val BRIEFING = 3
-    const val SHIELD = 4
     const val PLACE = 5
     const val BUNDLE = 9_999
     fun reminder(cueId: Long) = 10_000 + cueId.toInt()
@@ -44,7 +37,7 @@ object Extras {
     const val MINUTES = "friday.minutes"
 }
 
-/** The reminder's second button (the first is Start focus / Mark done / Got it). */
+/** The reminder's second button (the first is Mark done / Got it). */
 sealed interface SecondAction {
     data object SnoozePicker : SecondAction
     data class MoveTo(val time: LocalTime) : SecondAction
@@ -71,17 +64,13 @@ class Notifier(private val ctx: Context) {
                 NotificationChannel(Channels.QUIET, ctx.getString(R.string.ch_quiet), NotificationManager.IMPORTANCE_LOW).apply {
                     description = ctx.getString(R.string.ch_quiet_desc)
                 },
-                NotificationChannel(Channels.FOCUS, ctx.getString(R.string.ch_focus), NotificationManager.IMPORTANCE_LOW).apply {
-                    description = ctx.getString(R.string.ch_focus_desc); setShowBadge(false)
-                },
-                NotificationChannel(Channels.FOCUS_DONE, ctx.getString(R.string.ch_focus_done), NotificationManager.IMPORTANCE_HIGH).apply {
-                    description = ctx.getString(R.string.ch_focus_done_desc)
-                },
                 NotificationChannel(Channels.BRIEFING, ctx.getString(R.string.ch_briefing), NotificationManager.IMPORTANCE_DEFAULT).apply {
                     description = ctx.getString(R.string.ch_briefing_desc)
                 },
             ),
         )
+        // Focus mode was removed in v1.3: its channels (and the shield's) should not linger in system settings.
+        listOf("focus", "focus_done", "shield").forEach { nm.deleteNotificationChannel(it) }
     }
 
     fun enabled(): Boolean = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
@@ -102,10 +91,12 @@ class Notifier(private val ctx: Context) {
     }
 
     /** Reminders whose "Done" finishes the whole task (as opposed to one step inside it). */
-    fun isPrimary(t: TaskEntity, c: CueEntity) =
+    /** Events have nothing to complete: their reminders only say "Got it". */
+    fun isPrimary(t: TaskEntity, c: CueEntity) = !t.event && (
         c.kind == CueKind.DAY || c.kind == CueKind.END || (c.kind == CueKind.START && t.durationMin == null) ||
             // "Remind me to bring my charger when I leave home": the place reminder is the whole task.
             ((c.placeId != null || c.placeType != null) && t.dueDate == null)
+        )
 
     /** Other FRIDAY reminders on screen, newest first (the summary and this cue's own notification excluded). */
     private fun otherReminders(cueId: Long) = nm.activeNotifications
@@ -135,8 +126,6 @@ class Notifier(private val ctx: Context) {
             .setSilent(bundle)
         if (followUp) b.setSubText(ctx.getString(R.string.follow_up_subtext))
         when {
-            c.kind == CueKind.START && t.durationMin != null ->
-                b.addAction(0, ctx.getString(R.string.start_focus), openAppIntent(base + 1, route = "focus/${t.id}", cueId = c.id))
             isPrimary(t, c) -> b.addAction(0, ctx.getString(R.string.mark_done), receiverIntent(ReminderReceiver.ACTION_DONE, c.id, base + 1))
             else -> b.addAction(0, ctx.getString(R.string.got_it), receiverIntent(ReminderReceiver.ACTION_ACK, c.id, base + 1))
         }
@@ -184,48 +173,6 @@ class Notifier(private val ctx: Context) {
         if (otherReminders(cueId).size < 2) nm.cancel(NotificationIds.BUNDLE)
     }
 
-    @SuppressLint("MissingPermission")
-    fun focusOngoing(s: FocusSessionEntity) {
-        if (!enabled()) return
-        val endsAt = FocusMath.endsAt(s)
-        val b = NotificationCompat.Builder(ctx, Channels.FOCUS)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setColor(accent)
-            .setContentTitle(s.taskTitle)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .setContentIntent(openAppIntent(900, route = "focus"))
-        if (endsAt != null) {
-            b.setContentText(ctx.getString(R.string.focus_running)).setWhen(endsAt).setUsesChronometer(true).setChronometerCountDown(true).setShowWhen(true)
-        } else {
-            b.setContentText(ctx.getString(R.string.focus_paused_left, Fmt.duration(ctx, ((FocusMath.remainingMs(s, System.currentTimeMillis()) + 59_999) / 60_000).toInt())))
-        }
-        nm.notify(NotificationIds.FOCUS, b.build())
-    }
-
-    fun cancelFocus() = nm.cancel(NotificationIds.FOCUS)
-
-    @SuppressLint("MissingPermission")
-    fun focusDone(s: FocusSessionEntity) {
-        if (!enabled()) return
-        nm.cancel(NotificationIds.FOCUS)
-        nm.notify(
-            NotificationIds.FOCUS_DONE,
-            NotificationCompat.Builder(ctx, Channels.FOCUS_DONE)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setColor(accent)
-                .setContentTitle(ctx.getString(R.string.focus_done_title))
-                .setContentText(ctx.getString(R.string.focus_done_text, s.taskTitle))
-                .setCategory(NotificationCompat.CATEGORY_REMINDER)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setAutoCancel(true)
-                .setContentIntent(openAppIntent(901, route = "focus"))
-                .build(),
-        )
-    }
-
-    fun cancelFocusDone() = nm.cancel(NotificationIds.FOCUS_DONE)
 
     /** One quiet note about the place the user stopped at, with at most one button. */
     @SuppressLint("MissingPermission")

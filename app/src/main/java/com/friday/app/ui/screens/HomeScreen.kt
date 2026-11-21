@@ -57,6 +57,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
+import com.friday.app.ui.navigateTab
 import com.friday.app.AppContainer
 import com.friday.app.R
 import com.friday.app.ai.EngineResult
@@ -65,9 +66,7 @@ import com.friday.app.ai.Source
 import com.friday.app.ai.Undo
 import com.friday.app.data.AppSettings
 import com.friday.app.data.db.CueKind
-import com.friday.app.data.db.FocusSessionEntity
 import com.friday.app.data.db.TaskWithDetails
-import com.friday.app.domain.FocusMath
 import com.friday.app.domain.Matrix
 import com.friday.app.domain.Quadrant
 import com.friday.app.domain.Schedule
@@ -112,17 +111,15 @@ data class HomeState(
     val important: Int = 0,
     val dueToday: Int = 0,
     val open: Int = 0,
-    val focus: FocusSessionEntity? = null,
     val inbox: Int = 0,
 )
 
 class HomeViewModel(private val c: AppContainer) : ViewModel() {
     val state: StateFlow<HomeState> = combine(
         combine(c.tasks.observeOpen(), c.tasks.observeCompleted(), clock()) { a, b, n -> Triple(a, b, n) },
-        c.focus.active,
         c.settings.flow,
         c.notes.observeInboxCount(),
-    ) { (open, completed, now), focus, settings, inbox ->
+    ) { (open, completed, now), settings, inbox ->
         val today = now.toLocalDate()
         val ranked = Matrix.rankForNow(open.map { it.task }, now)
         val byId = open.associateBy { it.task.id }
@@ -138,16 +135,15 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
             loaded = true,
             now = now,
             settings = settings,
-            nowTask = ordered.firstOrNull()?.takeIf { focus == null },
-            next = ordered.drop(if (focus == null) 1 else 0).filter { it.task.id != focus?.taskId }.take(3),
+            nowTask = ordered.firstOrNull(),
+            next = ordered.drop(1).take(3),
             upcoming = upcoming,
-            left = open.count { it.task.dueDate != null && !it.task.dueDate.isAfter(today) },
-            doneToday = completed.count { (it.task.completedAt ?: 0) >= startOfDay },
+            left = open.count { !it.task.event && it.task.dueDate != null && !it.task.dueDate.isAfter(today) },
+            doneToday = completed.count { !it.task.event && (it.task.completedAt ?: 0) >= startOfDay },
             overdue = open.count { Matrix.isOverdue(it.task, now) },
             important = open.count { Matrix.quadrant(it.task, today) == Quadrant.DO },
-            dueToday = open.count { it.task.dueDate == today },
+            dueToday = open.count { !it.task.event && it.task.dueDate == today },
             open = open.size,
-            focus = focus,
             inbox = inbox,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
@@ -158,8 +154,6 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
     suspend fun restore(u: Undo.Restore) = c.tasks.restore(u.snapshot)
     suspend fun recovery(): Recovery? = c.assistant.recovery()
     fun describe(ctx: Context, r: Recovery) = c.assistant.describeRecovery(ctx, r)
-    fun pause(id: Long) = viewModelScope.launch { c.focus.pause(id) }
-    fun resume(id: Long) = viewModelScope.launch { c.focus.resume(id) }
 }
 
 @Composable
@@ -186,7 +180,6 @@ fun HomeScreen(nav: NavController) {
             if (r.chips.isEmpty() && r.text.isNotBlank()) toaster.show(r.text, r.undo?.let { u -> { vm.undo(u) } })
         }
     }
-    val dictate = rememberDictation { submit(it) }
 
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val tabBar = LocalTabBarHeight.current
@@ -198,14 +191,11 @@ fun HomeScreen(nav: NavController) {
             item(key = "header") { Header(state, onSettings = { nav.navigate("settings") }) }
             item(key = "main") {
                 Box(Modifier.padding(horizontal = 16.dp).animateContentSize()) {
-                    val focus = state.focus
                     when {
                         !state.loaded -> Spacer(Modifier.height(200.dp))
-                        focus != null -> FocusCard(focus, state.now, onOpen = { nav.navigate("focus") }, onPause = { vm.pause(focus.id) }, onResume = { vm.resume(focus.id) })
                         state.nowTask != null -> NowCard(
                             state.nowTask!!, state.now,
                             onOpen = { nav.navigate("task/${state.nowTask!!.task.id}") },
-                            onFocus = { nav.navigate("focus/${state.nowTask!!.task.id}") },
                             onDone = {
                                 scope.launch {
                                     val snap = vm.complete(state.nowTask!!.task.id) ?: return@launch
@@ -309,7 +299,13 @@ fun HomeScreen(nav: NavController) {
         ) {
             AnimatedVisibility(chips.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
                 Column(Modifier.padding(bottom = 8.dp)) {
-                    prompt?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = c.textSecondary, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)) }
+                    // On its own card: a long answer would otherwise run over the content behind the fade.
+                    prompt?.let {
+                        Text(
+                            it, style = MaterialTheme.typography.bodyMedium, color = c.text,
+                            modifier = Modifier.padding(bottom = 8.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.surface).padding(horizontal = 14.dp, vertical = 12.dp),
+                        )
+                    }
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         chips.forEach { chip -> Pill(chip, selected = false, onClick = { chips = emptyList(); submit(chip) }) }
                         Pill(stringResource(R.string.cancel), selected = false, onClick = { chips = emptyList(); scope.launch { vm.capture("cancel") } })
@@ -320,7 +316,8 @@ fun HomeScreen(nav: NavController) {
                 state = input,
                 onSubmit = { submit(input.text.toString()) },
                 placeholder = stringResource(R.string.capture_placeholder),
-                onMic = dictate,
+                // The real conversation: FRIDAY listens, answers aloud and listens again when it asks something.
+                onMic = { nav.navigateTab("assistant?listen=true") },
             )
         }
     }
@@ -334,12 +331,7 @@ fun HomeScreen(nav: NavController) {
                 Spacer(Modifier.height(12.dp))
                 Text(vm.describe(ctx, r), style = MaterialTheme.typography.bodyLarge, color = c.textSecondary)
                 Spacer(Modifier.height(24.dp))
-                PrimaryButton(stringResource(R.string.continue_focus), {
-                    recovery = null
-                    nav.navigate(r.task?.task?.id?.let { "focus/$it" } ?: "focus/0")
-                }, Modifier.fillMaxWidth(), icon = R.drawable.ic_timer)
-                Spacer(Modifier.height(8.dp))
-                if (r.task != null) SecondaryButton(stringResource(R.string.open_task), { recovery = null; nav.navigate("task/${r.task.task.id}") }, Modifier.fillMaxWidth())
+                if (r.task != null) PrimaryButton(stringResource(R.string.open_task), { recovery = null; nav.navigate("task/${r.task.task.id}") }, Modifier.fillMaxWidth())
                 Spacer(Modifier.height(16.dp))
                 Text(stringResource(R.string.recovery_footer), style = MaterialTheme.typography.bodySmall, color = c.textTertiary)
             }
@@ -392,8 +384,6 @@ private fun fridayLine(ctx: Context, s: HomeState): String {
     val r = ctx.resources
     return when {
         !s.loaded -> ""
-        s.focus != null && FocusMath.remainingMs(s.focus, System.currentTimeMillis()) == 0L -> ctx.getString(R.string.line_time_up)
-        s.focus != null -> ctx.getString(R.string.line_focusing, s.focus.taskTitle)
         s.overdue > 0 -> r.getQuantityString(R.plurals.line_overdue, s.overdue, s.overdue)
         s.important > 0 -> r.getQuantityString(R.plurals.line_important, s.important, s.important)
         s.dueToday > 0 -> r.getQuantityString(R.plurals.line_today, s.dueToday, s.dueToday)
@@ -403,7 +393,7 @@ private fun fridayLine(ctx: Context, s: HomeState): String {
 }
 
 @Composable
-private fun NowCard(d: TaskWithDetails, now: LocalDateTime, onOpen: () -> Unit, onFocus: () -> Unit, onDone: () -> Unit) {
+private fun NowCard(d: TaskWithDetails, now: LocalDateTime, onOpen: () -> Unit, onDone: () -> Unit) {
     val ctx = LocalContext.current
     val c = Friday.colors
     val t = d.task
@@ -443,10 +433,7 @@ private fun NowCard(d: TaskWithDetails, now: LocalDateTime, onOpen: () -> Unit, 
             }
         }
         Spacer(Modifier.height(18.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PrimaryButton(stringResource(R.string.start_focus), onFocus, Modifier.weight(1f), icon = R.drawable.ic_timer)
-            SecondaryButton(stringResource(R.string.done), onDone, icon = R.drawable.ic_check, height = 52.dp)
-        }
+        PrimaryButton(stringResource(R.string.done), onDone, Modifier.fillMaxWidth(), icon = R.drawable.ic_check)
     }
 }
 
@@ -460,44 +447,3 @@ private fun reasonLabel(r: Matrix.Reason): Pair<Int, Boolean>? = when (r) {
     Matrix.Reason.NONE -> null
 }
 
-@Composable
-private fun FocusCard(s: FocusSessionEntity, now: LocalDateTime, onOpen: () -> Unit, onPause: () -> Unit, onResume: () -> Unit) {
-    val c = Friday.colors
-    val ms = rememberNowMillis()
-    val left = FocusMath.remainingMs(s, ms)
-    val timeUp = left == 0L
-    Card(Modifier.clickable(onClick = onOpen)) {
-        Eyebrow(stringResource(if (timeUp) R.string.focus_time_up else if (s.pausedAt != null) R.string.focus_paused else R.string.focusing))
-        Spacer(Modifier.height(10.dp))
-        Text(s.taskTitle, style = MaterialTheme.typography.headlineSmall, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.height(12.dp))
-        Text(
-            countdown(left),
-            style = MaterialTheme.typography.displayLarge.copy(fontSize = 52.sp, lineHeight = 56.sp),
-            color = if (s.pausedAt != null) c.textSecondary else c.text,
-        )
-        Spacer(Modifier.height(10.dp))
-        LinearProgressIndicator(
-            progress = { FocusMath.progress(s, ms) },
-            modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-            color = c.accent,
-            trackColor = c.fill,
-            strokeCap = StrokeCap.Round,
-            drawStopIndicator = {},
-        )
-        Spacer(Modifier.height(16.dp))
-        when {
-            timeUp -> PrimaryButton(stringResource(R.string.how_did_it_go_btn), onOpen, Modifier.fillMaxWidth())
-            s.pausedAt != null -> PrimaryButton(stringResource(R.string.resume), onResume, Modifier.fillMaxWidth(), icon = R.drawable.ic_play_arrow)
-            else -> SecondaryButton(stringResource(R.string.pause), onPause, Modifier.fillMaxWidth(), icon = R.drawable.ic_pause)
-        }
-    }
-}
-
-fun countdown(ms: Long): String {
-    val total = (ms + 999) / 1000
-    val h = total / 3600
-    val m = (total % 3600) / 60
-    val s = total % 60
-    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
-}

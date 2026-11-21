@@ -11,10 +11,12 @@ import com.friday.app.data.db.Repeat
 import com.friday.app.data.db.SubtaskEntity
 import com.friday.app.data.db.TaskEntity
 import com.friday.app.data.db.TaskWithDetails
+import com.friday.app.domain.Matrix
 import com.friday.app.domain.Schedule
 import com.friday.app.reminders.ReminderScheduler
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
+import java.time.LocalDateTime
 
 /** Everything needed to put a task back exactly as it was. */
 data class TaskSnapshot(val details: TaskWithDetails, val historyId: Long? = null)
@@ -108,6 +110,17 @@ class TaskRepository(
         }
         scheduler.syncTask(id)
         return TaskSnapshot(d, historyId)
+    }
+
+    /**
+     * Events over for 4 h+ are marked finished. Not sooner: a reminder held during focus or at a quiet place
+     * (3 h at most) must still arrive, and a finished task's reminders are dropped.
+     */
+    suspend fun finishPastEvents(now: LocalDateTime = LocalDateTime.now()) {
+        dao.openTasks().map { it.task }.filter { it.event && Matrix.isOver(it, now.minusHours(4)) }.forEach { t ->
+            dao.update(t.copy(completedAt = System.currentTimeMillis()))
+            scheduler.syncTask(t.id)
+        }
     }
 
     suspend fun reopen(id: Long) {

@@ -3,7 +3,6 @@ package com.friday.app.domain
 import com.friday.app.data.db.CueAnchor
 import com.friday.app.data.db.CueEntity
 import com.friday.app.data.db.CueKind
-import com.friday.app.data.db.FocusSessionEntity
 import com.friday.app.data.db.Repeat
 import com.friday.app.data.db.TaskEntity
 import java.time.DayOfWeek
@@ -87,15 +86,21 @@ object Matrix {
         }
     }
 
+    /** An event whose time has passed: it leaves the lists by itself. Untimed events last their whole day. */
+    fun isOver(t: TaskEntity, now: LocalDateTime): Boolean =
+        t.event && (Schedule.end(t) ?: Schedule.start(t) ?: t.dueDate?.plusDays(1)?.atStartOfDay())?.isBefore(now) == true
+
     fun isOverdue(t: TaskEntity, now: LocalDateTime): Boolean {
+        if (t.event) return false
         val due = t.dueDate ?: return false
         if (due.isBefore(now.toLocalDate())) return true
         val finish = Schedule.end(t) ?: Schedule.start(t) ?: return false
         return finish.isBefore(now)
     }
 
-    /** Order for the Home "Now" card and its "Next" list. Lower tier wins. */
-    fun rankForNow(tasks: List<TaskEntity>, now: LocalDateTime): List<TaskEntity> {
+    /** Order for the Home "Now" card and its "Next" list. Lower tier wins. Events are not to-dos and are left out. */
+    fun rankForNow(all: List<TaskEntity>, now: LocalDateTime): List<TaskEntity> {
+        val tasks = all.filter { !it.event }
         val today = now.toLocalDate()
         fun tier(t: TaskEntity): Int {
             val start = Schedule.start(t)
@@ -152,22 +157,4 @@ object QuietHours {
         val endToday = now.toLocalDate().atStartOfDay().plusMinutes(end.toLong())
         return if (endToday.isAfter(now)) endToday else endToday.plusDays(1)
     }
-}
-
-object FocusMath {
-    fun elapsedMs(s: FocusSessionEntity, now: Long): Long =
-        ((s.pausedAt ?: s.endedAt ?: now) - s.startedAt - s.pausedTotalMs).coerceAtLeast(0)
-
-    fun remainingMs(s: FocusSessionEntity, now: Long): Long =
-        (s.plannedMin * 60_000L - elapsedMs(s, now)).coerceAtLeast(0)
-
-    /** Wall-clock end while running; null while paused. */
-    fun endsAt(s: FocusSessionEntity): Long? =
-        if (s.pausedAt != null) null else s.startedAt + s.pausedTotalMs + s.plannedMin * 60_000L
-
-    /** Only a running session with time left quiets other reminders; a finished one awaiting check-in doesn't. */
-    fun silencesOthers(s: FocusSessionEntity?, now: Long): Boolean = s != null && s.pausedAt == null && remainingMs(s, now) > 0
-
-    fun progress(s: FocusSessionEntity, now: Long): Float =
-        (elapsedMs(s, now).toFloat() / (s.plannedMin * 60_000f)).coerceIn(0f, 1f)
 }

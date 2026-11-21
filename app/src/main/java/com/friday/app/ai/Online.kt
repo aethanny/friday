@@ -16,7 +16,6 @@ import com.friday.app.data.db.FridayDatabase
 import com.friday.app.data.db.Repeat
 import com.friday.app.data.db.TaskEntity
 import com.friday.app.data.db.TaskWithDetails
-import com.friday.app.domain.FocusMath
 import com.friday.app.domain.Matrix
 import com.friday.app.domain.PrepPlan
 import com.friday.app.domain.Schedule
@@ -152,7 +151,6 @@ sealed interface Action {
     data class Update(val taskId: Long, val title: String?, val date: LocalDate?, val time: LocalTime?, val important: Boolean?) : Action
     data class Complete(val taskId: Long) : Action
     data class Snooze(val taskId: Long, val minutes: Int) : Action
-    data class Focus(val taskId: Long?, val minutes: Int) : Action
     data class Remember(val text: String) : Action
 }
 
@@ -240,7 +238,6 @@ object AiActions {
             "COMPLETE_TASK" -> id?.let { Action.Complete(it) }
             "SNOOZE_REMINDER" -> if (id == null) null else a.minutes?.takeIf { it in 1..1440 }?.let { Action.Snooze(id, it) }
             "REMEMBER" -> clean(a.text, 200)?.let { Action.Remember(it) }
-            "START_FOCUS" -> Action.Focus(id, (a.minutes ?: 25).coerceIn(1, 180))
             else -> null
         }
     }
@@ -307,7 +304,6 @@ class OnlineAssistant(
         val today = now().toLocalDate()
         val undos = mutableListOf<Undo>()
         var proposal: Proposal? = null
-        var focus: Action.Focus? = null
         var created: Long? = null
         val remembered = mutableListOf<String>()
         for (raw in reply.actions.take(5)) {
@@ -321,7 +317,6 @@ class OnlineAssistant(
                 is Action.Update -> if (proposal == null) proposal = Proposal(ProposalKind.UPDATE_TASK, a.taskId, updateLabel(r, byId.getValue(a.taskId).task, a), payload = AiActions.encode(raw))
                 is Action.Complete -> if (proposal == null) proposal = Proposal(ProposalKind.COMPLETE_TASK, a.taskId, r.getString(R.string.mark_done_label, byId.getValue(a.taskId).task.title))
                 is Action.Snooze -> if (proposal == null) proposal = Proposal(ProposalKind.SNOOZE_REMINDER, a.taskId, r.getString(R.string.snooze_label, byId.getValue(a.taskId).task.title, Fmt.duration(r, a.minutes)), minutes = a.minutes)
-                is Action.Focus -> focus = a
                 is Action.Remember -> memory.add(a.text, MemorySource.CHAT)?.let { undos += Undo.DeleteMemory(it); remembered += r.getString(R.string.remembered_line, a.text) }
                 null -> Unit
             }
@@ -331,8 +326,6 @@ class OnlineAssistant(
             undo = when (undos.size) { 0 -> null; 1 -> undos[0]; else -> Undo.Many(undos) },
             proposal = proposal,
             taskId = created,
-            focusTaskId = focus?.let { it.taskId ?: 0L },
-            focusMinutes = focus?.minutes,
             remote = true,
             lang = lang,
         )
@@ -462,23 +455,21 @@ class OnlineAssistant(
 
     private suspend fun systemPrompt(lang: Lang, open: List<TaskWithDetails>): String {
         val n = now()
-        val ranked = Matrix.rankForNow(open.map { it.task }, n).take(40)
+        // Events are not ranked as to-dos, but the AI still needs to know about them.
+        val ranked = (Matrix.rankForNow(open.map { it.task }, n) + open.map { it.task }.filter { it.event && !Matrix.isOver(it, n) }).take(40)
         val tasksText = ranked.joinToString("\n") { t ->
             "${t.id} | ${t.title} | ${t.dueDate ?: "-"} | ${t.dueTime ?: "-"} | ${t.durationMin ?: "-"} | ${if (t.important) "yes" else "no"}"
         }.ifBlank { "(none)" }
-        val focus = db.focus().active()?.let { "\nThe user is in a focus session on \"${it.taskTitle}\" with ${FocusMath.remainingMs(it, System.currentTimeMillis()) / 60_000} min left." }.orEmpty()
         val memories = memory.all().joinToString("\n") { "- ${it.text}" }.ifBlank { "(nothing yet)" }
         val postponed = open.map { it.task }.filter { it.postponeCount >= 2 }.sortedByDescending { it.postponeCount }.take(10).joinToString("\n") { "- ${it.title} (moved ${it.postponeCount} times)" }
-        val lastFocus = db.focus().latest()?.takeIf { (it.endedAt ?: it.startedAt) > System.currentTimeMillis() - 24 * 3_600_000L }
-            ?.let { "\nLast focus: \"${it.taskTitle}\" — ${it.outcome?.name ?: "in progress"}" }.orEmpty()
         val name = settings.current().name.takeIf { it.isNotBlank() }?.let { " The user's name is $it." }.orEmpty()
         return """
-            You are FRIDAY, a calm personal assistant inside the user's phone app. You help them remember things, focus and follow through.$name
+            You are FRIDAY, a calm personal assistant inside the user's phone app. You help them remember things, get ready and follow through.$name
             Be warm, brief and practical: one thing at a time, no lectures, never shame them, never diagnose. Reply in ${language(lang)}; mixing English and Malay is fine if they do.
-            Now: ${n.format(DateTimeFormatter.ofPattern("EEEE yyyy-MM-dd HH:mm", Locale.ENGLISH))} (local time).$focus
+            Now: ${n.format(DateTimeFormatter.ofPattern("EEEE yyyy-MM-dd HH:mm", Locale.ENGLISH))} (local time).
             Open tasks (id | title | due date | time | minutes | important):
             $tasksText
-            ${if (postponed.isBlank()) "" else "Tasks the user keeps putting off:\n$postponed"}$lastFocus
+            ${if (postponed.isBlank()) "" else "Tasks the user keeps putting off:\n$postponed"}
 
             What you know about the user:
             $memories
@@ -494,7 +485,6 @@ class OnlineAssistant(
             {"type":"UPDATE_TASK","taskId":int, plus any of "title","date","time","important"}
             {"type":"COMPLETE_TASK","taskId":int}
             {"type":"SNOOZE_REMINDER","taskId":int,"minutes":int}
-            {"type":"START_FOCUS","taskId":int,"minutes":int}
             {"type":"REMEMBER","text":str} (a lasting fact about the user's routine or preferences they told you. Never health, diagnosis, medication, religion or relationships unless they explicitly ask you to remember it. Don't remember one-off tasks.)
             Rules: only use taskIds from the list. If something needed is missing or unclear (for example a reminder without a time), ask one short question and return no actions.
             Never delete anything. Don't invent tasks the user didn't ask for. Times are 24-hour local time.

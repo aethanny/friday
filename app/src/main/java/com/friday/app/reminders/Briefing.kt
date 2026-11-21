@@ -47,7 +47,7 @@ class Briefing(
         val open = tasks.openTasks().map { it.task }
         val ranked = Matrix.rankForNow(open, now)
         val important = ranked.filter { Matrix.quadrant(it, today) == Quadrant.DO }
-        val dueToday = open.count { it.dueDate == today }
+        val dueToday = open.count { !it.event && it.dueDate == today }
         val overdue = open.count { Matrix.isOverdue(it, now) }
         if (important.isEmpty() && dueToday == 0 && overdue == 0) return null
         val lines = buildList {

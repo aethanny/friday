@@ -115,10 +115,10 @@ class TasksViewModel(private val c: AppContainer, private val ctx: Context) : Vi
         val today = now.toLocalDate()
         fun match(d: TaskWithDetails) = (cat == null || d.task.category == cat) &&
             (q.isBlank() || d.task.title.contains(q, true) || d.task.notes.contains(q, true) || d.subtasks.any { it.title.contains(q, true) })
-        val openF = open.filter(::match)
+        val openF = open.filter { match(it) && !Matrix.isOver(it.task, now) }
         val ranked = { list: List<TaskWithDetails> ->
             val order = Matrix.rankForNow(list.map { it.task }, now).withIndex().associate { it.value.id to it.index }
-            list.sortedBy { order[it.task.id] ?: 0 }
+            list.sortedBy { order[it.task.id] ?: Int.MAX_VALUE } // events are not ranked: after the to-dos
         }
         val groups = when {
             q.isNotBlank() -> listOf(TaskGroup(null, ranked(openF) + done.filter(::match)))

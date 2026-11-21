@@ -97,12 +97,12 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-/** What a FRIDAY message can still do: start focus, confirm a change or undo what it did. */
+/** What a FRIDAY message can still do: open a task, confirm a change or undo what it did. */
 @Serializable
 data class MsgMeta(
     val taskId: Long? = null,
-    val focusChip: String? = null,
-    val focusMinutes: Int? = null,
+    /** The chip that opens [taskId] ("Open it"). */
+    val openChip: String? = null,
     val proposal: String? = null,
     val proposalTask: Long? = null,
     val proposalLabel: String? = null,
@@ -165,7 +165,6 @@ class AssistantViewModel(private val c: AppContainer) : ViewModel() {
     }
 
     private suspend fun afterReply(r: EngineResult, spoken: Boolean) {
-        r.focusTaskId?.let { navigate.tryEmit("focus/$it" + (r.focusMinutes?.let { m -> "?min=$m" } ?: "")) }
         val s = c.settings.current()
         if (r.text.isNotBlank() && (spoken || s.readAloud)) {
             voice.value = VoiceState.SPEAKING
@@ -186,8 +185,7 @@ class AssistantViewModel(private val c: AppContainer) : ViewModel() {
         val r = try { c.assistant.handle(text, Source.CHAT) } finally { thinking.value = false }
         val meta = MsgMeta(
             taskId = r.taskId,
-            focusChip = r.chips.singleOrNull()?.takeIf { r.taskId != null || r.focusMinutes != null },
-            focusMinutes = r.focusMinutes,
+            openChip = r.chips.singleOrNull()?.takeIf { r.taskId != null },
             proposal = r.proposal?.kind?.name,
             proposalTask = r.proposal?.taskId,
             proposalLabel = r.proposal?.label,
@@ -258,17 +256,15 @@ fun AssistantScreen(nav: NavController, listen: Boolean) {
             else -> askMic = true
         }
     }
-    LaunchedEffect(listen) { if (listen) talk() }
+    var listenHandled by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(listen) { if (listen && !listenHandled) { listenHandled = true; talk() } }
     LaunchedEffect(Unit) { vm.navigate.collect { nav.navigate(it) } }
     LaunchedEffect(messages.size, thinking) { if (messages.isNotEmpty()) list.animateScrollToItem(messages.size + 1) }
 
-    val continueChip = stringResource(R.string.chip_continue_focus)
     fun onChip(m: MessageEntity, chip: String) {
         val meta = vm.meta(m)
-        if (chip == meta?.focusChip || chip == continueChip) {
-            val id = meta?.taskId ?: 0
-            nav.navigate("focus/$id" + (meta?.focusMinutes?.let { "?min=$it" } ?: ""))
-        } else vm.send(chip)
+        val id = meta?.taskId
+        if (chip == meta?.openChip && id != null) nav.navigate("task/$id") else vm.send(chip)
     }
 
     Column(Modifier.fillMaxSize().background(c.background).imePadding().padding(bottom = tabBar)) {

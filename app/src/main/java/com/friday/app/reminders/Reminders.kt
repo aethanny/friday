@@ -16,14 +16,12 @@ import com.friday.app.data.db.CueAnchor
 import com.friday.app.data.db.CueEntity
 import kotlinx.coroutines.CancellationException
 import com.friday.app.data.db.CueKind
-import com.friday.app.data.db.FocusSessionEntity
 import com.friday.app.data.db.FridayDatabase
 import com.friday.app.data.db.MemorySource
 import com.friday.app.data.db.Repeat
 import com.friday.app.data.db.SnoozeLogEntity
 import com.friday.app.data.db.TaskEntity
 import com.friday.app.data.db.TaskWithDetails
-import com.friday.app.domain.FocusMath
 import com.friday.app.domain.Habits
 import com.friday.app.domain.Matrix
 import com.friday.app.domain.QuietHours
@@ -40,7 +38,6 @@ import java.time.Instant
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
-import kotlin.math.abs
 
 /** Runs suspend work from a receiver without blocking the main thread. */
 fun BroadcastReceiver.launchAsync(block: suspend () -> Unit) {
@@ -147,17 +144,7 @@ class ReminderEngine(
         if (snoozed != null && snoozed > now + 60_000) { scheduler.set(cue.id, snoozed); return } // woke up early
         val key = trigger?.let(Schedule::key) ?: now // place reminders: every arrival is its own occurrence
         if (snoozed == null && trigger != null && cue.firedKey == key) return // never fire the same occurrence twice
-        val focus = db.focus().active()
-        if (trigger != null && (cue.kind == CueKind.PREP || cue.kind == CueKind.START) && startedAlready(task, now)) {
-            dao.updateCue(cue.copy(firedKey = key, firedAt = now, snoozedUntil = null, ackKey = null, held = false))
-            return
-        }
-        holdUntil(task, focus, now)?.let { end ->
-            dao.updateCue(cue.copy(held = true, snoozedUntil = end))
-            scheduler.set(cue.id, end) // if the session gets extended, this fires early and holds again
-            return
-        }
-        // Decided by the visit alone: its 3 h cap ends the hold, so a focus-held cue firing here stays quiet too.
+        // Decided by the visit alone: its 3 h cap ends the hold.
         if (atQuietPlace(now) && !importantUrgent(task, now)) {
             val end = now + PLACE_HOLD_MS
             dao.updateCue(cue.copy(held = true, snoozedUntil = end))
@@ -186,7 +173,7 @@ class ReminderEngine(
         return if (move != null) SecondAction.MoveTo(move) else SecondAction.SnoozePicker
     }
 
-    /** Releases reminders held back during focus. Each is re-checked, so a newer session can hold it again. */
+    /** Releases reminders held back at a quiet place. Each is re-checked, so a new quiet place can hold it again. */
     suspend fun releaseHeld(now: Long = System.currentTimeMillis()) {
         for (cue in dao.heldCues()) {
             // Defensive: a hold always sets snoozedUntil; without it the cue was rescheduled since, so just drop the flag.
@@ -206,22 +193,6 @@ class ReminderEngine(
         }
     }
 
-    /** Focusing on the task now, or a focus session on it ended in the last 30 min. Not lastActiveAt: merely opening a task touches it. */
-    private suspend fun startedAlready(task: TaskEntity, now: Long): Boolean {
-        val s = db.focus().latestFor(task.id) ?: return false
-        if (s.endedAt == null && FocusMath.silencesOthers(s, now)) return true // running now
-        // Sessions stay open after time-up until check-in, so an open one "ended" when its time ran out or it was paused.
-        val ended = s.endedAt ?: s.pausedAt ?: FocusMath.endsAt(s) ?: return false
-        return abs(now - ended) <= STARTED_WINDOW_MS
-    }
-
-    /** When a focus session on something else is running, the end of that session; null to deliver now. */
-    private fun holdUntil(task: TaskEntity, focus: FocusSessionEntity?, now: Long): Long? {
-        if (!FocusMath.silencesOthers(focus, now) || focus?.taskId == task.id) return null
-        if (importantUrgent(task, now)) return null
-        return FocusMath.endsAt(focus!!)
-    }
-
     private fun importantUrgent(task: TaskEntity, now: Long) =
         task.important && Matrix.isUrgent(task, LocalDateTime.ofInstant(Instant.ofEpochMilli(now), ZoneId.systemDefault()).toLocalDate())
 
@@ -230,7 +201,6 @@ class ReminderEngine(
         val cue = dao.getCue(cueId) ?: return
         val task = dao.get(cue.taskId) ?: return
         if (task.completedAt != null || cue.snoozedUntil != null || cue.firedKey == null || cue.ackKey == cue.firedKey) return
-        holdUntil(task, db.focus().active(), now)?.let { scheduler.setFollowUp(cue.id, it); return } // nudge after focus instead
         // At a quiet place: skip the nudge altogether. One fewer is calmer than one in a mosque.
         if (atQuietPlace(now) && !importantUrgent(task, now)) { dao.updateCue(cue.copy(ackKey = cue.firedKey)); return }
         val s = settings.current()
@@ -303,7 +273,6 @@ class ReminderEngine(
 
     companion object {
         const val FOLLOW_UP_MS = 10 * 60 * 1000L
-        const val STARTED_WINDOW_MS = 30 * 60 * 1000L
         /** Longest a quiet place holds a reminder. */
         const val PLACE_HOLD_MS = 3 * 60 * 60 * 1000L
     }
@@ -343,7 +312,6 @@ class SystemEventsReceiver : BroadcastReceiver() {
         launchAsync {
             c.scheduler.syncAll(fireMissed = true) { c.reminders.fire(it) }
             c.briefing.schedule()
-            c.focus.restoreAfterRestart()
             c.awareness.restoreAfterRestart()
             if (c.settings.current().placeAwareness) c.awareness.enable() // activity updates do not survive a restart
         }

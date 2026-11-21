@@ -60,8 +60,6 @@ import com.friday.app.R
 import com.friday.app.data.AppSettings
 import com.friday.app.data.SettingsStore
 import com.friday.app.data.ThemeMode
-import com.friday.app.focus.Dnd
-import com.friday.app.focus.ShieldPermissions
 import com.friday.app.ui.Fmt
 import com.friday.app.ui.components.EmptyState
 import com.friday.app.ui.components.FridaySwitch
@@ -99,7 +97,6 @@ class SettingsViewModel(val c: AppContainer) : ViewModel() {
     /** Deletes everything FRIDAY stored on this phone and returns to the welcome screen. */
     fun clearAll(ctx: Context) = c.scope.launch {
         c.db.tasks().allCues().forEach { c.scheduler.cancel(it.id) }
-        c.focus.current()?.let { c.focus.end(it.id, null, null) }
         withContext(Dispatchers.IO) { c.db.clearAllTables() }
         c.secrets.clear()
         NotificationManagerCompat.from(ctx).cancelAll()
@@ -125,8 +122,6 @@ fun SettingsScreen(nav: NavController) {
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { resume++ }
     val notificationsOn = remember(resume) { NotificationManagerCompat.from(ctx).areNotificationsEnabled() }
     val exact = remember(resume) { vm.c.scheduler.canExact() }
-    val dndAccess = remember(resume) { Dnd.hasAccess(ctx) }
-    val shieldReady = remember(resume) { ShieldPermissions.ready(ctx) }
     var dialog by remember { mutableStateOf<String?>(null) }
     val st = s ?: return
 
@@ -211,25 +206,6 @@ fun SettingsScreen(nav: NavController) {
                 }
             }
         }
-        item(key = "focus") {
-            Section(header = stringResource(R.string.focus), modifier = Modifier.padding(top = 22.dp)) {
-                ListRow(stringResource(R.string.set_focus_length), icon = R.drawable.ic_timer, iconBackground = c.accent, value = Fmt.duration(ctx, st.focusDefaultMin), onClick = { dialog = "focus" })
-                RowDivider(60.dp)
-                if (dndAccess) {
-                    SwitchRow(stringResource(R.string.dnd_during_focus), st.focusDnd, { v -> vm.set { setFocusDnd(v) } }, icon = R.drawable.ic_do_not_disturb_on, iconBackground = c.accent)
-                } else {
-                    ListRow(stringResource(R.string.allow_dnd), subtitle = stringResource(R.string.allow_dnd_sub), icon = R.drawable.ic_do_not_disturb_on, iconBackground = c.accent, onClick = {
-                        ctx.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    })
-                }
-                RowDivider(60.dp)
-                ListRow(
-                    stringResource(R.string.distraction_shield), icon = R.drawable.ic_shield, iconBackground = c.green,
-                    value = if (shieldReady && st.shieldApps.isNotEmpty()) stringResource(R.string.shield_apps_count, st.shieldApps.size) else stringResource(R.string.off),
-                    onClick = { nav.navigate("settings/shield") },
-                )
-            }
-        }
         item(key = "assistant") {
             val keys by vm.c.secrets.version.collectAsStateWithLifecycle()
             val aiOn = remember(keys) { vm.c.secrets.has(SecretStore.AI_KEY) } && st.aiEnabled
@@ -266,7 +242,6 @@ fun SettingsScreen(nav: NavController) {
             dialog = null; vm.set(resyncCues = true) { setPrepLead(v) }
         }
         "snooze" -> OptionSheet(stringResource(R.string.set_snooze), listOf(5, 10, 15, 30, 60).map { Fmt.duration(ctx, it) to it }, st.defaultSnoozeMin, { dialog = null }) { v -> dialog = null; vm.set { setSnooze(v) } }
-        "focus" -> OptionSheet(stringResource(R.string.set_focus_length), listOf(5, 15, 25, 45, 60).map { Fmt.duration(ctx, it) to it }, st.focusDefaultMin, { dialog = null }) { v -> dialog = null; vm.set { setFocusMin(v) } }
         "day" -> MinuteDialog(st.dayReminderMin, { dialog = null }) { v -> dialog = null; vm.set(resyncCues = true) { setDayReminder(v) } }
         "quietStart" -> MinuteDialog(st.quietStartMin, { dialog = null }) { v -> dialog = null; vm.set(reschedule = true) { setQuietStart(v) } }
         "quietEnd" -> MinuteDialog(st.quietEndMin, { dialog = null }) { v -> dialog = null; vm.set(reschedule = true) { setQuietEnd(v) } }
@@ -320,88 +295,3 @@ fun TextDialog(
         dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
 }
-
-data class AppInfo(val pkg: String, val label: String, val icon: ImageBitmap?)
-
-class ShieldViewModel(private val c: AppContainer, ctx: Context) : ViewModel() {
-    val s: StateFlow<AppSettings?> = c.settings.flow.stateIn(viewModelScope, SharingStarted.Eagerly, null)
-    val apps = MutableStateFlow<List<AppInfo>?>(null)
-
-    init {
-        viewModelScope.launch(Dispatchers.IO) {
-            val pm = ctx.packageManager
-            val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            apps.value = pm.queryIntentActivities(launcher, 0)
-                .map { it.activityInfo.packageName to it }
-                .distinctBy { it.first }
-                .filter { it.first != ctx.packageName }
-                .map { (pkg, ri) -> AppInfo(pkg, ri.loadLabel(pm).toString(), runCatching { ri.loadIcon(pm).toBitmap(96, 96).asImageBitmap() }.getOrNull()) }
-                .sortedBy { it.label.lowercase() }
-        }
-    }
-
-    fun toggle(pkg: String, on: Boolean) = viewModelScope.launch {
-        val cur = c.settings.current().shieldApps
-        c.settings.setShieldApps(if (on) cur + pkg else cur - pkg)
-    }
-}
-
-@Composable
-fun ShieldSettingsScreen(nav: NavController) {
-    val ctx = LocalContext.current
-    val vm = fridayViewModel { ShieldViewModel(it, ctx.applicationContext) }
-    val s by vm.s.collectAsStateWithLifecycle()
-    val apps by vm.apps.collectAsStateWithLifecycle()
-    val c = Friday.colors
-    var resume by remember { mutableIntStateOf(0) }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { resume++ }
-    val usage = remember(resume) { ShieldPermissions.usageAccess(ctx) }
-    val overlay = remember(resume) { ShieldPermissions.overlay(ctx) }
-    val selected = s?.shieldApps.orEmpty()
-
-    LargeTitleScreen(title = stringResource(R.string.distraction_shield), onBack = { nav.popBackStack() }) {
-        item(key = "intro") {
-            Text(stringResource(R.string.shield_intro), style = MaterialTheme.typography.bodyLarge, color = c.textSecondary, modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 18.dp))
-        }
-        item(key = "perms") {
-            Section(header = stringResource(R.string.shield_permissions), footer = stringResource(R.string.shield_permissions_footer)) {
-                ListRow(
-                    stringResource(R.string.usage_access), subtitle = stringResource(R.string.usage_access_sub), icon = R.drawable.ic_visibility_off, iconBackground = if (usage) c.green else c.textTertiary,
-                    value = stringResource(if (usage) R.string.allowed else R.string.not_allowed),
-                    onClick = { ctx.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
-                )
-                RowDivider(60.dp)
-                ListRow(
-                    stringResource(R.string.overlay_access), subtitle = stringResource(R.string.overlay_access_sub), icon = R.drawable.ic_shield, iconBackground = if (overlay) c.green else c.textTertiary,
-                    value = stringResource(if (overlay) R.string.allowed else R.string.not_allowed),
-                    onClick = { ctx.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${ctx.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
-                )
-            }
-        }
-        item(key = "apps") {
-            val list = apps
-            Section(header = stringResource(R.string.shield_apps), modifier = Modifier.padding(top = 22.dp)) {
-                if (list == null) {
-                    Text(stringResource(R.string.loading), style = MaterialTheme.typography.bodyMedium, color = c.textSecondary, modifier = Modifier.padding(16.dp))
-                } else if (list.isEmpty()) {
-                    EmptyState(R.drawable.ic_shield, stringResource(R.string.shield_apps), stringResource(R.string.no_apps))
-                } else {
-                    val ordered = list.sortedByDescending { it.pkg in selected }
-                    ordered.forEachIndexed { i, app ->
-                        if (i > 0) RowDivider(64.dp)
-                        Row(
-                            Modifier.fillMaxWidth().clickable { vm.toggle(app.pkg, app.pkg !in selected) }.heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            app.icon?.let { Image(it, null, Modifier.size(32.dp).clip(RoundedCornerShape(8.dp))) } ?: Ic(R.drawable.ic_grid_view, size = 32.dp)
-                            Spacer(Modifier.width(16.dp))
-                            Text(app.label, style = MaterialTheme.typography.bodyLarge, color = c.text, modifier = Modifier.weight(1f))
-                            FridaySwitch(app.pkg in selected, { vm.toggle(app.pkg, it) })
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-

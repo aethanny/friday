@@ -256,14 +256,13 @@ fun TaskEditorScreen(nav: NavController, id: Long) {
                 if (done) {
                     PrimaryButton(stringResource(R.string.reopen), { vm.reopen() }, Modifier.weight(1f), icon = R.drawable.ic_restart_alt)
                 } else {
-                    PrimaryButton(stringResource(R.string.start_focus), { nav.navigate("focus/${t.id}") }, Modifier.weight(1f), icon = R.drawable.ic_timer)
-                    com.friday.app.ui.components.SecondaryButton(stringResource(R.string.done), {
+                    PrimaryButton(stringResource(R.string.done), {
                         scope.launch {
                             val snap = vm.complete() ?: return@launch
                             toaster.show(ctx.getString(R.string.done_toast, t.title)) { vm.restore(Undo.Restore(snap)) }
                             if (t.repeat == Repeat.NONE) nav.popBackStack()
                         }
-                    }, icon = R.drawable.ic_check, height = 52.dp)
+                    }, Modifier.weight(1f), icon = R.drawable.ic_check)
                 }
             }
         }
@@ -291,6 +290,10 @@ fun TaskEditorScreen(nav: NavController, id: Long) {
                 }
                 RowDivider(52.dp)
                 ListRow(stringResource(R.string.duration), icon = R.drawable.ic_hourglass_empty, value = t.durationMin?.let { Fmt.duration(ctx, it) } ?: stringResource(R.string.none), onClick = { pickDuration = true })
+                if (t.dueDate != null) {
+                    RowDivider(52.dp)
+                    SwitchRow(stringResource(R.string.event_toggle), t.event, { vm.save(t.copy(event = it)) }, subtitle = stringResource(R.string.event_toggle_sub))
+                }
             }
         }
         item(key = "cues") {

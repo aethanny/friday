@@ -38,6 +38,8 @@ data class TaskEntity(
     val completedAt: Long? = null,
     val postponeCount: Int = 0,
     val lastActiveAt: Long? = null,
+    /** Something to attend (a lesson, an appointment), not a to-do: it only reminds, is never overdue and ends by itself. */
+    @ColumnInfo(defaultValue = "0") val event: Boolean = false,
 )
 
 @Entity(
