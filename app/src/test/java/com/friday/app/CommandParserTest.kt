@@ -182,4 +182,61 @@ class CommandParserTest {
         assertEquals(d(18), p.date)
         assertEquals(t(16), p.time)
     }
+
+    @Test fun eventWithSimpleTitle() {
+        val p = parser.parse("I've license lesson at 28 Nov, 8.00 am")
+        assertEquals(CommandKind.TASK, p.kind)
+        assertEquals("License lesson", p.title)
+        assertEquals(d(28), p.date)
+        assertEquals(t(8), p.time)
+        assertTrue(p.steps.isEmpty())
+    }
+
+    @Test fun eventWithThingsToDoBeforeGoing() {
+        val p = parser.parse("I have license lesson on 28 Nov 8am, remind me before I go to bring my IC and L-plate and check all the switches in my house")
+        assertEquals(CommandKind.TASK, p.kind)
+        assertEquals("License lesson", p.title)
+        assertEquals(d(28), p.date)
+        assertEquals(t(8), p.time)
+        assertEquals(listOf("Bring my IC and L-plate", "Check all the switches in my house"), p.steps)
+    }
+
+    @Test fun leadingReminderIsNotSplit() {
+        val p = parser.parse("Remind me at 5pm to call mum")
+        assertEquals(CommandKind.REMINDER, p.kind)
+        assertEquals("Call mum", p.title)
+        assertTrue(p.steps.isEmpty())
+    }
+
+    @Test fun malayEventWithChecklist() {
+        val p = parser.parse("Saya ada kelas memandu 28 Nov pukul 8 pagi, ingatkan saya bawa IC dan tutup semua suis")
+        assertEquals("Kelas memandu", p.title)
+        assertEquals(t(8), p.time)
+        assertEquals(listOf("Bawa IC", "Tutup semua suis"), p.steps)
+    }
+
+    @Test fun prepLeadAnswers() {
+        assertEquals(15, parser.parseLead("15 min"))
+        assertEquals(60, parser.parseLead("1 h"))
+        assertEquals(90, parser.parseLead("1.5 hours before"))
+        assertEquals(30, parser.parseLead("30 minit"))
+        assertEquals(90, parser.parseLead("1 h 30 min"))
+        assertEquals(null, parser.parseLead("buy milk in 2 hours"))
+
+    }
+
+    @Test fun spokenPrepAnswers() {
+        assertEquals(120, parser.parseLead("two hours"))
+        assertEquals(30, parser.parseLead("thirty minutes"))
+        assertEquals(45, parser.parseLead("maybe forty-five minutes"))
+        assertEquals(15, parser.parseLead("lima belas minit"))
+        assertEquals(120, parser.parseLead("dua jam lah"))
+        assertEquals(60, parser.parseLead("okay", suggested = 60))
+        assertEquals(90, parser.parseLead("boleh", suggested = 90))
+        assertEquals(null, parser.parseLead("okay")) // nothing was suggested
+        assertEquals(0, parser.parseLead("no thanks"))
+        assertEquals(0, parser.parseLead("No alarm"))
+        assertEquals(0, parser.parseLead("Tiada penggera"))
+        assertEquals(null, parser.parseLead("buy milk tomorrow"))
+    }
 }

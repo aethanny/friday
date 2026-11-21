@@ -343,6 +343,14 @@
     <string name="nothing_to_save">Belum ada apa untuk disimpan.</string>
     <string name="ask_what">Apa yang saya patut ingatkan?</string>
     <string name="ask_time">Pukul berapa saya patut ingatkan anda tentang “%1$s”?</string>
+    <string name="ask_prep">Berapa awal saya patut kejutkan anda untuk bersiap bagi “%1$s”?</string>
+    <string name="ask_prep_suggest">Berapa awal saya patut kejutkan anda untuk bersiap bagi “%1$s”? Saya cadangkan %2$s, boleh?</string>
+    <string name="chip_no_alarm">Tiada penggera</string>
+    <string name="prep_set">Baik. Saya akan kejutkan anda pukul %1$s untuk bersiap.</string>
+    <string name="prep_none">OK, tiada penggera bersiap.</string>
+    <string name="prep_kept">OK, saya kekalkan peringatan bersiap yang biasa.</string>
+    <string name="prep_msg">Masa untuk bersiap: %1$s bermula dalam %2$s.</string>
+    <string name="prep_steps">Sebelum pergi: %1$s</string>
     <string name="ok_cancelled">OK, dibatalkan.</string>
     <string name="chip_morning">Pagi · %1$s</string>
     <string name="chip_afternoon">Tengah hari · %1$s</string>

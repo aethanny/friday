@@ -18,6 +18,7 @@ import com.friday.app.data.db.TaskEntity
 import com.friday.app.data.db.TaskWithDetails
 import com.friday.app.domain.FocusMath
 import com.friday.app.domain.Matrix
+import com.friday.app.domain.PrepPlan
 import com.friday.app.domain.Schedule
 import com.friday.app.reminders.ReminderEngine
 import com.friday.app.ui.Fmt
@@ -140,6 +141,9 @@ private data class AiLines(val lines: List<AiLine> = emptyList())
 @Serializable
 private data class AiSteps(val steps: List<String> = emptyList())
 
+@Serializable
+private data class AiPrep(val prep: Boolean = false, val title: String = "", val leadMin: Int = 0, val steps: List<String> = emptyList())
+
 /** The only changes the AI may ask for, after validation. Anything else is dropped. */
 sealed interface Action {
     data class Create(val title: String, val date: LocalDate?, val time: LocalTime?, val durationMin: Int?, val important: Boolean, val repeat: Repeat) : Action
@@ -188,6 +192,14 @@ object AiActions {
     fun parseSteps(raw: String): List<String> = runCatching {
         json.decodeFromString(AiSteps.serializer(), raw.substring(raw.indexOf('{'), raw.lastIndexOf('}') + 1)).steps
     }.getOrDefault(emptyList())
+
+    /** null = unreadable reply (use the offline plan); leadMin 0 = the AI says there is nothing to get ready for. */
+    fun parsePrep(raw: String): PrepPlan? = runCatching {
+        json.decodeFromString(AiPrep.serializer(), raw.substring(raw.indexOf('{'), raw.lastIndexOf('}') + 1))
+    }.getOrNull()?.let { p ->
+        if (!p.prep) PrepPlan(leadMin = 0)
+        else PrepPlan(clean(p.title, 60), p.leadMin.coerceIn(5, 240), p.steps.mapNotNull { clean(it, 80) }.take(5))
+    }
 
     fun date(s: String?, today: LocalDate): LocalDate? = s?.let { runCatching { LocalDate.parse(it.trim().take(10)) }.getOrNull() }
         ?.takeIf { !it.isBefore(today.minusDays(1)) && it.isBefore(today.plusYears(5)) }
@@ -380,6 +392,20 @@ class OnlineAssistant(
                 else -> null
             }
         }
+    }
+
+    override suspend fun prepPlan(title: String, at: LocalDateTime, userSteps: List<String>, lang: Lang): PrepPlan? {
+        if (!available()) return null
+        val prompt = """
+            The user just added: "$title" on ${at.format(DateTimeFormatter.ofPattern("EEEE yyyy-MM-dd HH:mm", Locale.ENGLISH))}.
+            ${if (userSteps.isEmpty()) "" else "They already plan to: ${userSteps.joinToString("; ")}. Don't repeat those."}
+            Think like a thoughtful friend. Is this something they have to get ready for or go out to? If not (a call, a chore at home, an online task), respond {"prep":false}.
+            Otherwise respond {"prep":true, "title": a short simple name for it (2-4 words, Title Case, same language as they wrote it),
+            "leadMin": how many minutes before it they should start getting ready (think about travel and what it is),
+            "steps": 2 to 5 things to bring or do before leaving, in ${language(lang)}, max 8 words each, starting with a verb; if they leave home, include checking the switches and locking up}.
+            Respond only with JSON.
+        """.trimIndent()
+        return try { AiActions.parsePrep(ask(listOf("user" to prompt))) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null }
     }
 
     /** Small, concrete first steps for a task that feels too big. */

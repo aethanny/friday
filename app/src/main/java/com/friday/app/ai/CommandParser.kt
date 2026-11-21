@@ -29,6 +29,8 @@ data class Parsed(
     val placeType: String? = null,
     /** The generic word the user said ("shop", "grocery store"), so a saved place with that name can win. */
     val placeWord: String? = null,
+    /** "…8 am, remind me to bring my IC and check the switches": things to do before the event. */
+    val steps: List<String> = emptyList(),
 ) {
     /** "Remind me…" without a clock time: FRIDAY has to ask when. */
     val needsTime: Boolean get() = kind == CommandKind.REMINDER && time == null && placeEvent == null && placeType == null
@@ -54,6 +56,12 @@ class CommandParser(private val clock: () -> LocalDateTime = LocalDateTime::now)
         val today = now.toLocalDate()
         val lang = detectLang(input)
         if (NOTE.containsMatchIn(input.trim())) return Parsed(CommandKind.NOTE, input.trim(), lang = lang)
+
+        // An event followed by "remind me to …": the event is the task, the rest becomes its checklist.
+        REMIND.find(input)?.takeIf { m -> input.substring(0, m.range.first).any(Char::isLetter) }?.let { m ->
+            val head = parse(input.substring(0, m.range.first))
+            if (head.time != null || head.date != null) return head.copy(steps = steps(input.substring(m.range.last + 1)), lang = lang)
+        }
 
         var s = " " + input.trim().trimEnd('.', '!', '?', ' ') + " "
         fun take(regex: Regex): MatchResult? {
@@ -196,10 +204,24 @@ class CommandParser(private val clock: () -> LocalDateTime = LocalDateTime::now)
     private fun cleanTitle(raw: String): String {
         var t = raw.replace(Regex("\\s+"), " ").trim()
         repeat(3) {
-            t = t.replace(LEADING_FILLER, "").replace(TRAILING_FILLER, "").trim()
+            t = t.replace(LEADING_FILLER, "").replace(TRAILING_FILLER, "").trim(',', ';', ':', '-', ' ', '·', '•')
         }
-        t = t.trim(',', ';', ':', '-', ' ', '·', '•')
         return t.replaceFirstChar { it.uppercase() }
+    }
+
+    // shortcut: "and" splits only before a known verb ("bring IC and licence" stays one step); grow STEP_VERBS as needed.
+    private fun steps(tail: String): List<String> =
+        tail.replace(BEFORE_GO, " ").replace(REMIND, ",").split(STEP_SPLIT).map(::cleanTitle).filter { it.any(Char::isLetter) }
+
+    /** Answer to "how early should I alarm you?": minutes, 0 for "no alarm", null when it is not an answer. */
+    fun parseLead(text: String, suggested: Int? = null): Int? {
+        val t = text.trim().trimEnd('.', '!')
+        if (NO_LEAD.containsMatchIn(t)) return 0
+        if (suggested != null && YES_LEAD.containsMatchIn(t)) return suggested
+        val parts = LEAD.findAll(t).toList()
+        // Only a pure duration counts ("1 h 30 min", "about 2 hours before"), so "buy milk in 2 hours" is a new message.
+        if (parts.isEmpty() || t.replace(LEAD, " ").replace(LEAD_FILLER, " ").isNotBlank()) return null
+        return parts.sumOf { minutes(it.groupValues[1], it.groupValues[2]) }
     }
 
     private fun hm(h: String, m: String, pm: Boolean): LocalTime? {
@@ -226,10 +248,11 @@ class CommandParser(private val clock: () -> LocalDateTime = LocalDateTime::now)
     }
 
     private fun minutes(n: String, unit: String): Int {
-        val v = when (n.lowercase().trim()) {
+        val w = n.lowercase().trim()
+        val v = when (w) {
             "a", "an", "one", "satu", "se" -> 1.0
             "half an", "half a", "setengah", "sejam" -> 0.5
-            else -> n.replace(',', '.').toDoubleOrNull() ?: 1.0
+            else -> SPOKEN_NUMBERS[w.replace('-', ' ')]?.toDouble() ?: n.replace(',', '.').toDoubleOrNull() ?: 1.0
         }
         val u = unit.lowercase()
         val perUnit = if (u.startsWith("h") || u.startsWith("j")) 60 else 1
@@ -296,7 +319,24 @@ class CommandParser(private val clock: () -> LocalDateTime = LocalDateTime::now)
         val TIME_BARE = Regex("$B(?:at|@|pukul|pkl|jam)\\s*(\\d{1,2})(?:[:.](\\d{2}))?$E", I)
         val MIDNIGHT = Regex("$B(?:at )?(midnight|tengah malam)$E", I)
 
-        val LEADING_FILLER = Regex("^(?:(?:and|to|that|about|for|me|i need to|i have to|i must|i should|need to|have to|i want to|please|pls|tolong|saya|aku|nak|kena|perlu|untuk|supaya|yang|on|at|by|pada|pukul|sebelum|dan)\\s+)+", I)
+        private const val STEP_VERBS = "bring|check|lock|turn|switch|take|pack|charge|wear|close|unplug|prepare|pick|bawa|periksa|semak|tutup|matikan|kunci|cas|ambil"
+        val STEP_SPLIT = Regex("[,;]|${B}also$E|${B}(?:and|dan)$E(?=\\s+(?:$STEP_VERBS)$E)", I)
+        val BEFORE_GO = Regex("${B}(?:before (?:i |you )?(?:go|leave|head out)|sebelum (?:saya |aku )?(?:pergi|keluar|gerak))$E", I)
+        /** What speech recognition writes instead of digits ("two hours", "tiga puluh minit"). */
+        private val SPOKEN_NUMBERS = mapOf(
+            "two" to 2, "three" to 3, "four" to 4, "five" to 5, "six" to 6, "ten" to 10, "fifteen" to 15, "twenty" to 20,
+            "thirty" to 30, "forty five" to 45, "forty" to 40, "ninety" to 90,
+            "dua" to 2, "tiga" to 3, "empat" to 4, "lima" to 5, "enam" to 6, "sepuluh" to 10, "lima belas" to 15, "dua puluh" to 20,
+            "tiga puluh" to 30, "empat puluh lima" to 45, "empat puluh" to 40,
+        )
+        // Longest first, so "lima belas" is not read as "lima".
+        private val NUMBER_WORDS = SPOKEN_NUMBERS.keys.sortedByDescending { it.length }.joinToString("|") { it.replace(" ", "[ -]") }
+        val LEAD = Regex("$B(\\d+(?:[.,]\\d+)?|$NUMBER_WORDS|an?|one|half an|satu|setengah)\\s*(hours?|hrs?|h|minutes?|mins?|m|jam|minit)$E", I)
+        val LEAD_FILLER = Regex("$B(about|around|maybe|lebih kurang|mungkin|before|earlier|awal|sebelum|and|dan|please|thanks|lah)$E", I)
+        val YES_LEAD = Regex("^(yes|yeah|yep|yup|ok|okay|sure|sounds good|fine|that'?s fine|good|ya|ye|boleh|okey|baik|setuju|bagus)$E", I)
+        val NO_LEAD = Regex("^(no|none|nope|no alarm|not needed|don'?t|tak|tidak|tiada|tiada penggera)$E", I)
+
+        val LEADING_FILLER = Regex("^(?:(?:and|to|that|about|for|me|i need to|i have to|i(?:['’]?ve| have| got)(?: got)?(?: an?)?|i['’]ll have(?: an?)?|i['’]m having(?: an?)?|i must|i should|need to|have to|i want to|please|pls|tolong|saya|aku|ada|nak|kena|perlu|untuk|supaya|yang|on|at|by|pada|pukul|sebelum|dan)\\s+)+", I)
         val TRAILING_FILLER = Regex("(?:\\s+(?:and|at|on|by|for|before|this|the|to|in|pada|pukul|jam|sebelum|untuk|dan|ini|ni|nanti|please|pls))+$", I)
 
         fun weekday(w: String): DayOfWeek? = when (w.lowercase()) {

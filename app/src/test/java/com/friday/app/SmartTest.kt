@@ -12,6 +12,8 @@ import com.friday.app.domain.DndReasons
 import com.friday.app.domain.Habits
 import com.friday.app.domain.PlaceKind
 import com.friday.app.domain.PlaceKinds
+import com.friday.app.domain.Prep
+import com.friday.app.voice.spoken
 import com.friday.app.domain.ReminderWhy
 import com.friday.app.domain.Why
 import java.time.LocalDate
@@ -106,5 +108,32 @@ class SmartTest {
         val (twice, n2) = PlaceKinds.bumpUndo(once, PlaceKind.HOLD)
         assertEquals(2, n2)
         assertEquals(setOf("STUDY:5", "HOLD:2"), twice)
+    }
+
+    @Test fun prepThinksAboutWhatKindOfEventItIs() {
+        val lesson = Prep.think("License lesson", ms = false, userListed = false)!!
+        assertEquals(60, lesson.leadMin)
+        assertEquals("Bring your IC and learner's licence", lesson.steps.first())
+        assertTrue(lesson.steps.any { it.contains("switches") })
+        assertEquals(180, Prep.think("Flight to Penang", ms = false, userListed = false)!!.leadMin)
+        assertEquals(90, Prep.think("Job interview", ms = false, userListed = false)!!.leadMin)
+        assertTrue(Prep.think("Temujanji klinik", ms = true, userListed = false)!!.steps.contains("Periksa suis dan kunci pintu"))
+        assertEquals(null, Prep.think("Call mum", ms = false, userListed = false))
+        assertEquals(null, Prep.think("Submit assignment", ms = false, userListed = false))
+    }
+
+    @Test fun prepKeepsTheUsersOwnThingsAndSkipsRepeats() {
+        val plan = Prep.think("License lesson", ms = false, userListed = true)!!
+        assertEquals(listOf("Take your phone, wallet and keys", "Check the switches and lock the door"), plan.steps)
+        val merged = Prep.merge(listOf("Bring my IC", "Check all the switches in my house"), plan.steps)
+        assertEquals(listOf("Bring my IC", "Check all the switches in my house", "Take your phone, wallet and keys"), merged)
+    }
+
+    @Test fun repliesReadNaturallyAloud() {
+        assertEquals(
+            "Reminder set: License lesson, Sat 28 Nov, 8:00 AM. Before you go: Bring my IC, Check the switches. How early should I alarm you? I’d say 1 hour, OK?",
+            spoken("Reminder set: License lesson · Sat 28 Nov, 8:00 AM\nBefore you go: Bring my IC · Check the switches\n\nHow early should I alarm you? I’d say 1 h, OK?"),
+        )
+        assertEquals("Got it, 2 hours and 15 minutes", spoken("Got it, 2 h and 15 min"))
     }
 }

@@ -36,6 +36,16 @@ import java.io.File
 import java.io.IOException
 import java.util.Locale
 
+/** Text as it should be heard: no symbols, "1 h" → "1 hour", "·" lists read as pauses. */
+fun spoken(text: String): String = text
+    .replace(Regex("[•★“”\"*_#]"), "")
+    .replace(Regex("(\\d+) h(?![\\p{L}])")) { if (it.groupValues[1] == "1") "1 hour" else "${it.groupValues[1]} hours" }
+    .replace(Regex("(\\d+) min(?![\\p{L}])")) { if (it.groupValues[1] == "1") "1 minute" else "${it.groupValues[1]} minutes" }
+    .replace(Regex("\\s*·\\s*"), ", ")
+    .replace(Regex("\\s*\\n+\\s*"), ". ")
+    .replace(Regex("([.?!:])\\. "), "$1 ")
+    .trim()
+
 /**
  * FRIDAY's voice: ElevenLabs when the user added a key (natural, Malay-capable), otherwise the phone's
  * own text-to-speech. Only the text FRIDAY is about to say is sent to ElevenLabs.
@@ -57,7 +67,7 @@ class Speaker(
     /** Says [text] and returns once FRIDAY has finished talking (or could not talk at all). */
     suspend fun speak(text: String, lang: Lang) {
         stop()
-        val clean = text.replace(Regex("[•★“”\"*_#]"), "").replace(Regex("\\s*\\n+\\s*"), ". ").trim()
+        val clean = spoken(text)
         if (clean.isBlank()) return
         speaking.value = true
         audio.requestAudioFocus(focus)

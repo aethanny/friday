@@ -125,4 +125,13 @@ class OnlineAiTest {
         assertEquals("Rest first.", r.reply)
         assertEquals("user is tired", r.think)
     }
+
+    @Test fun prepReplyIsReadAndBounded() {
+        val p = AiActions.parsePrep("""{"prep":true,"title":"License Lesson","leadMin":999,"steps":["Bring IC","Lock the door"]}""")!!
+        assertEquals("License Lesson", p.title)
+        assertEquals(240, p.leadMin)
+        assertEquals(listOf("Bring IC", "Lock the door"), p.steps)
+        assertEquals(0, AiActions.parsePrep("""{"prep":false}""")!!.leadMin)
+        assertNull(AiActions.parsePrep("sorry, no"))
+    }
 }

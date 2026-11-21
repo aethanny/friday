@@ -236,9 +236,25 @@ class DeviceTests {
         assertFalse(c.ai.available())
         val created = c.assistant.handle("Remind me tomorrow at 9am to call the bank", Source.CHAT)
         assertNotNull(created.taskId)
+        assertTrue(created.chips.isEmpty()) // a call needs no getting ready
         val chat = c.assistant.handle("tell me a joke about penguins", Source.CHAT)
         assertFalse(chat.remote)
         assertEquals(1, chat.chips.size) // "Save to Inbox"
+    }
+
+    @Test fun eventAsksHowEarlyAndCarriesItsChecklist() = runBlocking<Unit> {
+        if (c.secrets.has(com.friday.app.data.SecretStore.AI_KEY)) return@runBlocking // offline rules only
+        val r = c.assistant.handle("I've license lesson tomorrow at 8am, remind me to bring my IC and check all the switches", Source.CHAT)
+        val id = r.taskId!!
+        assertEquals("License lesson", c.tasks.get(id)!!.title)
+        assertEquals(listOf("1 h", "15 min", "30 min", "2 h", "No alarm"), r.chips) // suggestion first
+        c.assistant.handle(r.chips[0], Source.CHAT)
+        val d = c.tasks.details(id)!!
+        assertEquals(3, d.subtasks.size) // IC, switches, + phone/wallet/keys
+        assertTrue(d.cues.none { it.kind == CueKind.PREP })
+        val prep = d.cues.single { it.kind == CueKind.CUSTOM }
+        assertEquals(60, prep.offsetMin)
+        assertTrue(prep.message.contains("Check all the switches"))
     }
 
     @Test fun notificationSnoozeButtonReachesTheReceiver() = runBlocking<Unit> {

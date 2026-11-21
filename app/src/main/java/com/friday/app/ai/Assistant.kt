@@ -9,7 +9,14 @@ import com.friday.app.data.NoteRepository
 import com.friday.app.data.SettingsStore
 import com.friday.app.data.TaskRepository
 import com.friday.app.data.TaskSnapshot
+import com.friday.app.data.db.CueAnchor
+import com.friday.app.data.db.CueEntity
+import com.friday.app.data.db.CueKind
 import com.friday.app.data.db.FocusOutcome
+import com.friday.app.data.db.Repeat
+import com.friday.app.domain.Prep
+import com.friday.app.domain.PrepPlan
+import com.friday.app.domain.Schedule
 import com.friday.app.data.db.FocusSessionEntity
 import com.friday.app.data.db.FridayDatabase
 import com.friday.app.data.db.TaskEntity
@@ -82,6 +89,9 @@ class AssistantEngine(
     private val now: () -> LocalDateTime = LocalDateTime::now,
 ) {
     private var pending: Parsed? = null
+    /** Task waiting for "how early should I alarm you to get ready?". */
+    private var pendingPrep: Long? = null
+    private var suggestedPrep: Int? = null
     private var lastUnhandled: String? = null
 
     suspend fun handle(input: String, source: Source): EngineResult {
@@ -89,6 +99,13 @@ class AssistantEngine(
         val lang = CommandParser.detectLang(text)
         val r = ctx.inLang(lang)
         if (text.isBlank()) return EngineResult("", lang = lang)
+
+        pendingPrep?.let { id ->
+            pendingPrep = null
+            // Anything that is not an answer is a new message; the usual get-ready reminder stays.
+            val lead = if (CANCEL.containsMatchIn(text)) -1 else parser.parseLead(text, suggestedPrep)
+            if (lead != null) return setPrep(id, lead, lang)
+        }
 
         pending?.let { p ->
             pending = null
@@ -152,9 +169,17 @@ class AssistantEngine(
 
     private suspend fun create(p: Parsed, source: Source): EngineResult {
         val r = ctx.inLang(p.lang)
+        // Think first, like a person would: is this something to get ready for, and what should they take?
+        val start = if (p.date != null && p.time != null) p.date.atTime(p.time) else null
+        val eligible = source != Source.TASK_SHEET && p.repeat == Repeat.NONE && start != null && start.isAfter(now())
+        val plan = if (!eligible) null
+            else remote?.prepPlan(p.title, start!!, p.steps, p.lang) ?: Prep.think(p.title, p.lang == Lang.MS, userListed = p.steps.isNotEmpty())
+        // Unrecognised offline: still ask for an event ("X at 8 am"), not for a plain "remind me at 5 pm".
+        val askPrep = eligible && (plan?.let { it.leadMin > 0 } ?: (p.kind == CommandKind.TASK))
+        val steps = if (askPrep) Prep.merge(p.steps, plan?.steps.orEmpty()) else p.steps
         val id = tasks.save(
             TaskEntity(
-                title = p.title,
+                title = (if (askPrep) plan?.title else null) ?: p.title,
                 important = p.important,
                 dueDate = p.date,
                 dueTime = p.time,
@@ -163,6 +188,7 @@ class AssistantEngine(
                 repeatDays = p.repeatDays,
             ),
         )
+        if (steps.isNotEmpty()) tasks.addSubtasks(id, steps)
         val t = tasks.get(id)!!
         val whenText = Fmt.whenText(r, t, now().toLocalDate())
         val repeat = Fmt.repeat(r, t)
@@ -171,8 +197,34 @@ class AssistantEngine(
             t.dueTime != null -> r.getString(R.string.reminder_set, t.title, detail)
             detail.isNotEmpty() -> r.getString(R.string.task_added_when, t.title, detail)
             else -> r.getString(R.string.task_added, t.title)
+        } + if (steps.isNotEmpty()) "\n" + r.getString(R.string.prep_steps, steps.joinToString(" · ")) else ""
+        if (askPrep) {
+            val suggested = plan?.leadMin?.takeIf { it > 0 }
+            // The suggestion comes first so it is one tap away.
+            val chips = (listOfNotNull(suggested) + PREP_LEADS).distinct().filter { start!!.minusMinutes(it.toLong()).isAfter(now()) }.map { Fmt.duration(r, it) }
+            if (chips.isNotEmpty()) {
+                pendingPrep = id
+                suggestedPrep = suggested?.takeIf { chips.first() == Fmt.duration(r, it) }
+                val ask = if (suggestedPrep != null) r.getString(R.string.ask_prep_suggest, t.title, chips.first()) else r.getString(R.string.ask_prep, t.title)
+                return EngineResult(msg + "\n\n" + ask, chips = chips + r.getString(R.string.chip_no_alarm), undo = Undo.DeleteTask(id), taskId = id, lang = p.lang)
+            }
         }
         return EngineResult(msg, undo = Undo.DeleteTask(id), taskId = id, lang = p.lang)
+    }
+
+    /** [lead] minutes before the start (0 = no alarm, -1 = keep the usual one). Steps go in the alarm text. */
+    private suspend fun setPrep(id: Long, lead: Int, lang: Lang): EngineResult {
+        val r = ctx.inLang(lang)
+        val d = tasks.details(id)
+        val start = d?.task?.let(Schedule::start)
+        if (d == null || start == null || lead < 0) return EngineResult(r.getString(R.string.prep_kept), lang = lang)
+        tasks.save(d.task.copy(autoPrep = false)) // drops the automatic one; the custom one below replaces it
+        if (lead == 0) return EngineResult(r.getString(R.string.prep_none), taskId = id, lang = lang)
+        val steps = d.subtasks.filter { !it.done }.sortedBy { it.position }.joinToString(" · ") { it.title }
+        val text = r.getString(R.string.prep_msg, d.task.title, Fmt.duration(r, lead)) +
+            if (steps.isNotEmpty()) "\n" + r.getString(R.string.prep_steps, steps) else ""
+        tasks.addCue(CueEntity(taskId = id, kind = CueKind.CUSTOM, anchor = CueAnchor.START, offsetMin = lead, message = text))
+        return EngineResult(r.getString(R.string.prep_set, Fmt.time(r, start.minusMinutes(lead.toLong()).toLocalTime())), taskId = id, lang = lang)
     }
 
     /** A saved place called exactly "shop" or "pharmacy" beats the generic errand. */
@@ -342,6 +394,7 @@ class AssistantEngine(
 
     companion object {
         private val I = setOf(RegexOption.IGNORE_CASE)
+        private val PREP_LEADS = listOf(15, 30, 60, 120)
         val CANCEL = Regex("^(cancel|never ?mind|stop|batal|tak jadi|tak payah)\\b", I)
         val SAVE_TO_INBOX = Regex("^(save (it )?to (my )?inbox|simpan dalam inbox|simpan ke inbox)", I)
         val FORGOT = Regex("(i forgot what i was doing|what was i doing|where was i|saya lupa apa saya buat|aku lupa apa aku buat|apa saya buat tadi|lupa apa (saya|aku) (tengah )?buat)", I)
@@ -360,4 +413,6 @@ class AssistantEngine(
 interface RemoteAssistant {
     suspend fun respond(text: String, lang: Lang): EngineResult?
     suspend fun applyConfirmed(p: Proposal): Undo?
+    /** How to get ready for an event; null when the AI is off or failed (FRIDAY then uses its offline rules). */
+    suspend fun prepPlan(title: String, at: LocalDateTime, userSteps: List<String>, lang: Lang): PrepPlan?
 }

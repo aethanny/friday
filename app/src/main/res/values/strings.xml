@@ -366,6 +366,14 @@
     <string name="nothing_to_save">There’s nothing to save yet.</string>
     <string name="ask_what">What should I remind you about?</string>
     <string name="ask_time">What time should I remind you about “%1$s”?</string>
+    <string name="ask_prep">How early should I alarm you to get ready for “%1$s”?</string>
+    <string name="ask_prep_suggest">How early should I alarm you to get ready for “%1$s”? I’d say %2$s, OK?</string>
+    <string name="chip_no_alarm">No alarm</string>
+    <string name="prep_set">Got it. I’ll alarm you at %1$s to get ready.</string>
+    <string name="prep_none">OK, no get-ready alarm.</string>
+    <string name="prep_kept">OK, I’ll keep the usual get-ready reminder.</string>
+    <string name="prep_msg">Time to get ready: %1$s starts in %2$s.</string>
+    <string name="prep_steps">Before you go: %1$s</string>
     <string name="ok_cancelled">OK, cancelled.</string>
     <string name="chip_morning">Morning · %1$s</string>
     <string name="chip_afternoon">Afternoon · %1$s</string>
