@@ -78,3 +78,30 @@ CONTEXT.md is the original brief; where this file differs, this file wins.
   coroutines/StateFlow, OkHttp + kotlinx.serialization. Hand-written DI container instead of Hilt;
   AlarmManager instead of WorkManager.
 - AGP 9.5.1, Kotlin 2.4.21, Gradle 9.9.2, compileSdk 37.1, targetSdk 36, minSdk 26.
+
+## v1.1 fixes
+- B1: a snoozed place reminder keeps its snooze alarm when alarms are re-synced (it used to be cancelled on every app start).
+- B2: monthly repeats keep their anchor day (Jan 31 -> Feb 28 -> Mar 31); the anchor is stored in `repeatDays` (0 = old tasks, use the due date's day).
+- B3: completing a repeating task resets its postpone count, so one old postponement no longer marks every future occurrence as postponed.
+- B4: the AI action type is trimmed once before every check, so " CREATE_REMINDER" without a time is rejected.
+- B5: deleting a task with a place reminder (including undoing a creation) unregisters its geofence right away.
+
+## v1.1 smart timing
+- Reminders for other tasks are held (not delivered quietly) while a focus session runs, and arrive when it ends or its time is up. Important + urgent tasks still come through. The hold alarm at the session's end is kept as a backup.
+- "Get ready" and "Start" reminders are skipped only when the task is being focused on or a focus session on it ended in the last 30 min. `lastActiveAt` is not used: merely opening a task touches it, and a reminder that should arrive must never be lost. "Got it" still touches the task as in v1.0.
+- Reminders arriving within 2 min of another one still on screen are posted silently and grouped under one summary ("3 things now").
+- Reminders have two buttons: the main action and "Snooze…" (the fixed "Snooze N min" button is gone).
+
+## v1.1 places
+- Stillness check is 3 min (not 10), so short shop stops count as a visit.
+- Held reminders and quiet-place silence end after 3 h at most, so a stale hold can never swallow a reminder.
+- Follow-up nudges are suppressed at quiet places.
+- Legacy monthly tasks that had already drifted keep the drifted day: the original day cannot be recovered.
+- Lecture halls are not detected as hold places: OpenStreetMap rarely maps them, and saved places other than Home don't change how reminders behave. Put the phone on silent yourself, or use Focus with Do Not Disturb there.
+- "Went silent" is only claimed when Do Not Disturb access is granted.
+
+## v1.1 final review
+- A reminder whose time passed less than 2 min ago is left alone by the app-start re-sync: its alarm may be firing at that moment, and marking it as fired made the receiver post nothing. Older ones are still marked as fired, as in v1.0.
+- Only reminders anchored to a task's start time teach "Move to <time>": snoozing a day, end or place reminder says nothing about when you like to start.
+- Pausing focus releases held reminders, like ending it does (a paused session silences nothing). Each held reminder is released on its own; one that fails gets its alarm back a minute later.
+- At a quiet place without Do Not Disturb access FRIDAY does not hold reminders: the phone isn't silent, so holding would only delay them with no notice.

@@ -226,7 +226,14 @@
     <string name="ch_briefing_desc">Gambaran pagi anda</string>
     <string name="mark_done">Tanda selesai</string>
     <string name="got_it">Faham</string>
-    <string name="snooze_n">Tunda %1$s</string>
+    <string name="why_postponed">Dah dialih %1$d kali. 5 minit pun dah kira.</string>
+    <string name="why_first_step">Langkah pertama: %1$s</string>
+    <string name="why_next">Seterusnya: %1$s pukul %2$s</string>
+    <plurals name="bundle_title">
+        <item quantity="other">%d perkara sekarang</item>
+    </plurals>
+    <string name="move_to">Alih ke %1$s</string>
+    <string name="habit_usual_time">Biasanya buat “%1$s” sekitar %2$s</string>
     <string name="snooze_more">Tunda…</string>
     <string name="snooze_title">Tunda sehingga</string>
     <string name="follow_up_subtext">Peringatan sekali lagi</string>
@@ -477,6 +484,18 @@
     <string name="voice_phone">Suara telefon</string>
 
     <!-- Places -->
+    <string name="memory_title">Apa FRIDAY tahu tentang saya</string>
+    <string name="memory_intro">Fakta kecil yang FRIDAY ingat supaya lebih membantu. Ubah atau buang mana-mana.</string>
+    <string name="memory_add_hint">Tambah sesuatu yang FRIDAY patut tahu</string>
+    <string name="memory_empty_title">Belum ada apa-apa</string>
+    <string name="memory_empty_body">Beritahu FRIDAY perkara seperti “Saya penat selepas 10 malam”.</string>
+    <string name="memory_edit">Ubah ingatan</string>
+    <string name="memory_duplicate">Sudah diingat.</string>
+    <string name="memory_full">FRIDAY boleh ingat sehingga 100 perkara. Buang satu dahulu.</string>
+    <string name="memory_deleted">Dibuang</string>
+    <string name="memory_source_user">Anda</string>
+    <string name="memory_source_chat">Dari sembang</string>
+    <string name="memory_source_habit">Tabiat</string>
     <string name="places_title">Tempat</string>
     <string name="places_intro">Simpan tempat yang anda selalu pergi, supaya FRIDAY boleh ingatkan anda bila sampai atau keluar. Berdiri di tempat itu dan ketik “Saya di sini sekarang”.</string>
     <string name="places_here">Saya di sini sekarang</string>
@@ -497,8 +516,25 @@
     <string name="place_message_hint">cth. Bawa pengecas anda</string>
     <string name="places_accuracy">Hidupkan Ketepatan Lokasi Google</string>
     <string name="places_accuracy_footer">Perkhidmatan lokasi telefon anda tidak dapat memantau tempat sekarang. Peringatan tempat berfungsi semula setelah Ketepatan Lokasi dihidupkan.</string>
+    <string name="cue_at_type">Bila anda di %1$s nanti</string>
+    <string name="place_type_store">kedai</string>
+    <string name="place_type_pharmacy">farmasi</string>
+    <string name="place_type_supermarket">pasar raya</string>
+    <string name="errand_set">Baik. Saya akan ingatkan anda untuk %1$s bila anda di %2$s nanti.</string>
+    <string name="errand_needs_places">Hidupkan kesedaran tempat dalam Tetapan › Tempat supaya ini berfungsi.</string>
     <string name="places_accuracy_needed">Perhatian: peringatan tempat perlukan Ketepatan Lokasi Google. Hidupkan dalam Tetapan › Tempat.</string>
     <string name="line_time_up">Sesi fokus anda sudah tamat. Bagaimana tadi?</string>
     <string name="battery_title">Benarkan peringatan melepasi penjimatan bateri</string>
     <string name="battery_sub">Sesetengah telefon melewatkan atau menyekat peringatan untuk jimat bateri. Ketik untuk benarkan FRIDAY berjalan tanpa sekatan.</string>
+    <string name="remembered_line">Diingat: %1$s</string>
+    <string name="place_aware">Kenal tempat saya</string>
+    <string name="place_aware_sub">Senyapkan telefon di tempat seperti masjid dan pawagam, dan ingatkan anda di kedai. Hanya lokasi kasar anda disemak dengan OpenStreetMap bila anda berhenti di sesuatu tempat.</string>
+    <string name="place_aware_denied">Ini perlukan lokasi tepat sepanjang masa, akses aktiviti fizikal dan Jangan Ganggu. Ia kekal mati sehingga semuanya dibenarkan.</string>
+    <string name="place_check_now">Semak tempat ini sekarang</string>
+    <string name="place_hold">Senyap di sini</string>
+    <string name="place_undo">Batal</string>
+    <string name="place_study">Di perpustakaan. Fokus pada %1$s?</string>
+    <string name="place_home">Tinggal hari ini: %1$s</string>
+    <string name="place_kind_hold">tempat senyap</string>
+    <string name="place_memory_no_silence">Tak mahu FRIDAY senyap di %1$s</string>
 </resources>

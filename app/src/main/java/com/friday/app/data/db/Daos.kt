@@ -68,6 +68,13 @@ interface TaskDao {
     @Insert suspend fun insertCue(c: CueEntity): Long
     @Insert suspend fun insertCues(c: List<CueEntity>): List<Long>
     @Update suspend fun updateCue(c: CueEntity)
+
+    /** Targeted so a background AI write can never overwrite fired/snooze state. */
+    @Query("UPDATE cues SET smartText = :text, smartKey = :key WHERE id = :id")
+    suspend fun setSmart(id: Long, text: String, key: Long)
+
+    @Query("UPDATE cues SET smartText = NULL, smartKey = NULL WHERE taskId = :taskId")
+    suspend fun clearSmart(taskId: Long)
     @Delete suspend fun deleteCue(c: CueEntity)
 
     @Query("SELECT * FROM cues WHERE id = :id")
@@ -79,11 +86,38 @@ interface TaskDao {
     @Query("SELECT * FROM cues")
     suspend fun allCues(): List<CueEntity>
 
-    @Query("UPDATE cues SET firedKey = NULL, ackKey = NULL, snoozedUntil = NULL, firedAt = NULL WHERE taskId = :taskId")
+    @Query("UPDATE cues SET firedKey = NULL, ackKey = NULL, snoozedUntil = NULL, firedAt = NULL, held = 0 WHERE taskId = :taskId")
     suspend fun resetCueState(taskId: Long)
 
     @Query("SELECT * FROM cues WHERE firedAt >= :since AND taskId != :exceptTaskId ORDER BY firedAt")
     suspend fun firedSince(since: Long, exceptTaskId: Long): List<CueEntity>
+
+    @Insert suspend fun logSnooze(e: SnoozeLogEntity)
+
+    @Query("SELECT * FROM snooze_log WHERE taskId = :taskId AND at >= :since ORDER BY at DESC")
+    suspend fun snoozesFor(taskId: Long, since: Long): List<SnoozeLogEntity>
+
+    @Query("DELETE FROM snooze_log WHERE taskId = :taskId")
+    suspend fun clearSnoozes(taskId: Long)
+
+    @Query("SELECT * FROM cues WHERE held = 1")
+    suspend fun heldCues(): List<CueEntity>
+}
+
+@Dao
+interface MemoryDao {
+    @Query("SELECT * FROM memories ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<MemoryEntity>>
+
+    @Query("SELECT * FROM memories ORDER BY createdAt DESC")
+    suspend fun all(): List<MemoryEntity>
+
+    @Query("SELECT * FROM memories WHERE id = :id")
+    suspend fun get(id: Long): MemoryEntity?
+
+    @Insert suspend fun insert(m: MemoryEntity): Long
+    @Update suspend fun update(m: MemoryEntity)
+    @Delete suspend fun delete(m: MemoryEntity)
 }
 
 @Dao
@@ -115,6 +149,9 @@ interface FocusDao {
 
     @Query("SELECT * FROM focus_sessions ORDER BY startedAt DESC LIMIT 1")
     fun observeLatest(): Flow<FocusSessionEntity?>
+
+    @Query("SELECT * FROM focus_sessions WHERE taskId = :taskId ORDER BY startedAt DESC LIMIT 1")
+    suspend fun latestFor(taskId: Long): FocusSessionEntity?
 
     @Query("SELECT * FROM focus_sessions WHERE id = :id")
     suspend fun get(id: Long): FocusSessionEntity?

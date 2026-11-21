@@ -4,7 +4,9 @@ import com.friday.app.location.PlaceManager
 import android.content.Context
 import android.content.res.Configuration
 import com.friday.app.R
+import com.friday.app.data.MemoryRepository
 import com.friday.app.data.NoteRepository
+import com.friday.app.data.SettingsStore
 import com.friday.app.data.TaskRepository
 import com.friday.app.data.TaskSnapshot
 import com.friday.app.data.db.FocusOutcome
@@ -24,6 +26,7 @@ enum class Source { CAPTURE, CHAT, TASK_SHEET }
 sealed interface Undo {
     data class DeleteTask(val id: Long) : Undo
     data class DeleteNote(val id: Long) : Undo
+    data class DeleteMemory(val id: Long) : Undo
     data class Restore(val snapshot: TaskSnapshot) : Undo
     data class DeleteSteps(val ids: List<Long>) : Undo
     data class Many(val items: List<Undo>) : Undo
@@ -71,9 +74,11 @@ class AssistantEngine(
     private val db: FridayDatabase,
     private val tasks: TaskRepository,
     private val notes: NoteRepository,
+    private val memory: MemoryRepository,
     private val parser: CommandParser,
     private val remote: RemoteAssistant?,
     private val places: PlaceManager? = null,
+    private val settings: SettingsStore? = null,
     private val now: () -> LocalDateTime = LocalDateTime::now,
 ) {
     private var pending: Parsed? = null
@@ -111,6 +116,7 @@ class AssistantEngine(
             }
             CommandKind.REMINDER, CommandKind.TASK -> when {
                 p.title.isBlank() -> EngineResult(r.getString(R.string.ask_what), lang = lang)
+                p.placeType != null -> savedPlaceNamed(p.placeWord)?.let { placeReminder(p.copy(placeType = null, placeEvent = PlaceEvent.ARRIVE, place = it), text) } ?: errandReminder(p)
                 p.placeEvent != null -> placeReminder(p, text)
                 p.needsTime -> {
                     pending = p
@@ -169,6 +175,20 @@ class AssistantEngine(
         return EngineResult(msg, undo = Undo.DeleteTask(id), taskId = id, lang = p.lang)
     }
 
+    /** A saved place called exactly "shop" or "pharmacy" beats the generic errand. */
+    private suspend fun savedPlaceNamed(word: String?): String? =
+        word?.let { w -> db.places().all().firstOrNull { it.name.trim().equals(w, ignoreCase = true) }?.name }
+
+    /** "Next time I'm at a pharmacy": no saved place, matched later by place type. */
+    private suspend fun errandReminder(p: Parsed): EngineResult {
+        val r = ctx.inLang(p.lang)
+        val id = tasks.save(TaskEntity(title = p.title, important = p.important))
+        tasks.addPlaceTypeCue(id, p.placeType!!)
+        var msg = r.getString(R.string.errand_set, p.title, Fmt.placeTypeLabel(r, p.placeType))
+        if (settings?.current()?.placeAwareness != true) msg += "\n\n" + r.getString(R.string.errand_needs_places)
+        return EngineResult(msg, undo = Undo.DeleteTask(id), taskId = id, lang = p.lang)
+    }
+
     /** Location reminders need a saved place; until it exists the thought is kept safe in the Inbox. */
     private suspend fun placeReminder(p: Parsed, original: String): EngineResult {
         val r = ctx.inLang(p.lang)
@@ -192,6 +212,7 @@ class AssistantEngine(
         when (u) {
             is Undo.DeleteTask -> tasks.delete(u.id)
             is Undo.DeleteNote -> db.notes().get(u.id)?.let { notes.delete(it) }
+            is Undo.DeleteMemory -> db.memories().get(u.id)?.let { memory.delete(it) }
             is Undo.Restore -> tasks.restore(u.snapshot)
             is Undo.DeleteSteps -> db.tasks().deleteSubtasks(u.ids)
             is Undo.Many -> u.items.asReversed().forEach { undo(it) }

@@ -7,11 +7,11 @@ FRIDAY is not a medical app and does not diagnose or treat ADHD or any other con
 
 ## Install on your phone
 
-1. Copy `FRIDAY-v1.0.apk` (in this folder) to your phone, for example over USB or Google Drive.
+1. Copy `FRIDAY-v1.1.apk` (in this folder) to your phone, for example over USB or Google Drive.
 2. Open it on the phone. If asked, allow your Files app to "Install unknown apps", then tap **Install**.
 3. Open FRIDAY, say hi, and allow notifications.
 
-Or with USB debugging on: `adb install -r FRIDAY-v1.0.apk`.
+Or with USB debugging on: `adb install -r FRIDAY-v1.1.apk`.
 
 Updates install over the old version and keep your data, **as long as they are signed with the same key**
 (see "Signing key" below).
@@ -39,7 +39,8 @@ Everything works offline. An AI key adds free conversation, **Suggest reminders*
   Any OpenAI-compatible service works (OpenAI, OpenRouter, Groq, Ollama/LM Studio on your network):
   change **Server** and **Model**, or use *Pick from the service*.
 - Default model `gemini-flash-latest` is Google's alias for its newest Flash model.
-- What is sent: your message, the recent chat, and the titles/times of open tasks. Never notes.
+- What is sent: your message, the recent chat, the titles/times of open tasks, and the short list of
+  things FRIDAY remembers about you (Settings › *What FRIDAY knows about me*). Never notes, step text or locations.
   On Gemini's free plan Google may use what you send to improve its products.
 - The key is encrypted on the phone with Android Keystore and excluded from backups.
   A key stored inside an app is fine for a personal build, **not** for an app published to others.
@@ -87,7 +88,8 @@ new build can't update the installed app, and you'd have to uninstall FRIDAY (lo
 - **Reminders inside tasks**: automatic "get ready" (15 min before), "start" and "time's up"
   reminders, plus your own (for example "5 min before the end: screenshot analytics"). You can reuse the
   same reminders as last time, and add place reminders (arrive/leave).
-- **Notifications**: Mark done / Got it, Snooze, and Snooze… (5 min, 15 min, 1 h, Tomorrow).
+- **Notifications**: two buttons: the main action (Mark done / Got it) and either Snooze… (5 min, 15 min,
+  1 h, Tomorrow) or "Move to <time>" once FRIDAY has learned your usual time.
   One follow-up nudge if ignored, quiet hours (silent delivery), exact alarms, and reminders restored
   after reboot, clock and time-zone changes. Times are wall-clock, so 9 PM stays 9 PM when you travel.
 - **Focus**: 5/15/25/45/custom minutes; the timer survives closing the app. Do Not Disturb during
@@ -97,6 +99,20 @@ new build can't update the installed app, and you'd have to uninstall FRIDAY (lo
   "I have 20 minutes", "I have too many things to do"), optional online AI with validated actions,
   Undo, and one-tap confirmation for changes. It never deletes. Siri-style voice conversation.
 - **Inbox & Notes**: capture now, sort later. Turn a note into a task or a reminder, or keep it as a note.
+- **What FRIDAY knows about me**: a list of facts the AI remembered (for example "I study best in the
+  morning"). You can read, edit and delete every one. The AI uses it, and thinks before it replies.
+- **Reminders that say why**: a reminder tells you why it matters, with two buttons: the main action and
+  either "Snooze…" (5 min, 15 min, 1 h, Tomorrow) or "Move to <time>" once FRIDAY has learned when you
+  usually snooze a start reminder to.
+- **Reminders that wait for you**: while a focus session runs, other reminders are held and arrive after it
+  (urgent + important ones still come through). A "get ready" or "start" reminder is skipped if you are
+  already focusing on that task. Several reminders at once arrive as one bundle with one alert.
+- **Errand reminders**: say "remind me next time I'm at a pharmacy / store / supermarket to buy plasters"
+  or "ingatkan saya bila di farmasi / kedai / pasar raya untuk beli plaster".
+- **Know where I am** (Settings › Reminders › Places, off by default): FRIDAY notices when you stop somewhere, knows
+  the kind of place (shop, pharmacy, library…), and lets it shape reminders, for example staying quiet at a
+  quiet place. Needs precise location set to **Allow all the time**, **Physical activity**, and
+  **Do Not Disturb access** (only to say it went silent).
 - **Daily summary** at 8:00, skipped on days with nothing to report.
 - **Settings**: name, theme (system/light/dark), language (English/Malay, Android 13+), reminders,
   quiet hours, daily summary, focus, distraction shield, places, AI, voice, privacy (clear chat, delete
@@ -132,10 +148,10 @@ No analytics and no ads.
 
 ## Test results (Pixel 6 Pro emulator, Android 16)
 
-- 36 unit tests pass: the offline parser in English, Malay and mixed sentences; matrix ranking;
+- 65 unit tests pass: the offline parser in English, Malay and mixed sentences; matrix ranking;
   schedules, repeats and time zones; quiet hours; focus timing; and AI action validation with the
   OpenAI-compatible client against a fake server.
-- 10 device tests pass:
+- 54 device tests pass (two focus tests skip themselves while a real focus session is running), including:
   - task create/edit/complete/delete with undo, and repeating-task history
   - data surviving a database restart
   - reminders firing once, snooze, Mark done and the single follow-up nudge
@@ -154,7 +170,19 @@ No analytics and no ads.
   - a place reminder firing when leaving Home
   - the release build, which updated the app with data kept
 
+## What is sent where
+
+- **AI (if you set a key):** the v1.0 data plus the memory list. Never notes, step text or locations.
+- **OpenStreetMap:** only the rounded location of a stop (about 11 m precision), when "Know where I am"
+  is on and you have been still for about 3 minutes. Nothing else.
+
 ## Known limitations
+
+- **Lecture halls** are rarely mapped in OpenStreetMap, so FRIDAY can't tell you are in one. Put the
+  phone on silent yourself, or start Focus with Do Not Disturb there.
+- **Time limits:** quiet-place silence and held reminders end after 3 hours at most.
+- **Downgrading** from v1.1 to v1.0 is not possible without uninstalling (the database was upgraded), which
+  erases your data. Keep the v1.1 APK.
 
 - **Voice:** speech recognition couldn't be heard on the emulator (it has no microphone input).
   Listening starts and the system mic indicator turns on; real recognition needs a phone.

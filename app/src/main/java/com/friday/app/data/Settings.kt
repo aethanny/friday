@@ -36,6 +36,11 @@ data class AppSettings(
     val aiBaseUrl: String = DEFAULT_AI_URL,
     val aiModel: String = DEFAULT_AI_MODEL,
     val aiEnabled: Boolean = true,
+    val placeAwareness: Boolean = false,
+    /** PlaceKind names the user turned off by undoing twice. */
+    val placeOffKinds: Set<String> = emptySet(),
+    /** Undo counts per kind, encoded "KIND:n". */
+    val placeUndos: Set<String> = emptySet(),
 ) {
     companion object {
         const val DEFAULT_AI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -71,6 +76,9 @@ class SettingsStore(private val context: Context) {
         val aiUrl = stringPreferencesKey("ai_url")
         val aiModel = stringPreferencesKey("ai_model")
         val aiEnabled = booleanPreferencesKey("ai_enabled")
+        val placeAwareness = booleanPreferencesKey("place_awareness")
+        val placeOffKinds = stringSetPreferencesKey("place_off_kinds")
+        val placeUndos = stringSetPreferencesKey("place_undos")
     }
 
     val flow: Flow<AppSettings> = context.store.data.map { p ->
@@ -97,6 +105,9 @@ class SettingsStore(private val context: Context) {
             aiBaseUrl = p[K.aiUrl] ?: d.aiBaseUrl,
             aiModel = p[K.aiModel] ?: d.aiModel,
             aiEnabled = p[K.aiEnabled] ?: d.aiEnabled,
+            placeAwareness = p[K.placeAwareness] ?: d.placeAwareness,
+            placeOffKinds = p[K.placeOffKinds] ?: d.placeOffKinds,
+            placeUndos = p[K.placeUndos] ?: d.placeUndos,
         )
     }
 
@@ -127,6 +138,9 @@ class SettingsStore(private val context: Context) {
     suspend fun setAiUrl(v: String) = set(K.aiUrl, v.trim())
     suspend fun setAiModel(v: String) = set(K.aiModel, v.trim())
     suspend fun setAiEnabled(v: Boolean) = set(K.aiEnabled, v)
+    suspend fun setPlaceAwareness(v: Boolean) = set(K.placeAwareness, v)
+    suspend fun setPlaceOffKinds(v: Set<String>) = set(K.placeOffKinds, v)
+    suspend fun setPlaceUndos(v: Set<String>) = set(K.placeUndos, v)
 
     suspend fun clear() {
         context.store.edit { it.clear() }

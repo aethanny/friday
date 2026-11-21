@@ -1,5 +1,6 @@
 package com.friday.app
 
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -13,13 +14,22 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.friday.app.ai.Source
 import com.friday.app.data.db.CueKind
 import com.friday.app.data.db.FocusOutcome
+import com.friday.app.data.db.FocusSessionEntity
 import com.friday.app.data.db.FridayDatabase
 import com.friday.app.data.db.Repeat
 import com.friday.app.data.db.SubtaskEntity
 import com.friday.app.data.db.TaskEntity
+import com.friday.app.domain.DndReasons
 import com.friday.app.domain.FocusMath
+import com.friday.app.domain.PlaceKind
+import com.friday.app.focus.Dnd
+import com.friday.app.focus.DndControl
+import com.friday.app.location.PlaceSystem
+import android.location.Location
+import com.friday.app.location.Visit
 import com.friday.app.focus.FocusController
 import com.friday.app.reminders.Extras
+import com.friday.app.reminders.NotificationIds
 import com.friday.app.reminders.ReminderReceiver
 import com.friday.app.ui.theme.DarkColors
 import com.friday.app.ui.theme.Friday
@@ -35,6 +45,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -50,11 +61,39 @@ import java.time.LocalTime
 class DeviceTests {
     private val ctx: Context = ApplicationProvider.getApplicationContext()
     private lateinit var c: AppContainer
+    private val fakeDnd = FakeDnd()
+    private val fakeSystem = FakePlaceSystem()
+
+    /** Stands in for location, OpenStreetMap, the visit fence, the cap alarm and the place note. */
+    private class FakePlaceSystem : PlaceSystem {
+        var location: Location? = null
+        var tags = emptyList<Map<String, String>>()
+        var watchOk = true
+        var dndAccess = true
+        val notes = mutableListOf<String>()
+        override suspend fun here() = location
+        override suspend fun tagsNear(lat: Double, lng: Double) = tags
+        override suspend fun watchVisit(lat: Double, lng: Double) = watchOk
+        override suspend fun unwatchVisit() {}
+        override fun armCap(startedAt: Long) {}
+        override fun cancelCap() {}
+        override fun hasDndAccess() = dndAccess
+        override fun note(channel: String, text: String, actionLabel: String?, action: PendingIntent?, open: PendingIntent) { notes += text }
+        override fun cancelNote() {}
+    }
+
+    /** Records Do Not Disturb reasons instead of changing the phone's real setting. */
+    private class FakeDnd : DndControl {
+        var reasons = emptySet<String>()
+        override fun enable(reason: String) { reasons = DndReasons.add(reasons, reason) }
+        override fun restore(reason: String) { reasons = DndReasons.remove(reasons, reason) }
+    }
 
     @get:Rule val compose = createComposeRule()
 
     @Before fun setUp() = runBlocking<Unit> {
-        c = AppContainer(ctx, inMemoryDb = true)
+        c = AppContainer(ctx, inMemoryDb = true, dnd = fakeDnd, placeSystem = fakeSystem)
+        c.visits.set(null)
         val seed = c.db.tasks().insert(TaskEntity(id = 1_000_000, title = "seed"))
         c.db.tasks().insertCue(com.friday.app.data.db.CueEntity(id = 1_000_000, taskId = seed, kind = CueKind.CUSTOM, anchor = com.friday.app.data.db.CueAnchor.START))
         c.db.tasks().delete(c.db.tasks().get(seed)!!)
@@ -62,6 +101,7 @@ class DeviceTests {
 
     @After fun tearDown() = runBlocking<Unit> {
         c.db.tasks().allCues().forEach { c.scheduler.cancel(it.id); c.notifier.cancelReminder(it.id) }
+        c.visits.set(null)
         c.db.close()
     }
 
@@ -136,6 +176,19 @@ class DeviceTests {
         c.reminders.done(start.id) // "Mark done" on a reminder without duration finishes the task
         assertNotNull(c.tasks.get(id)!!.completedAt)
         assertNull(alarm(start.id))
+    }
+
+    @Test fun moveToChangesTimeAndRemembers() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Gym bag", dueDate = today.plusDays(1), dueTime = LocalTime.of(17, 0), repeat = Repeat.DAILY))
+        c.db.tasks().logSnooze(com.friday.app.data.db.SnoozeLogEntity(taskId = id, at = System.currentTimeMillis(), targetMin = 19 * 60))
+        val cue = c.db.tasks().cuesFor(id).first { it.kind == CueKind.START }
+        c.reminders.moveTo(cue.id, LocalTime.of(19, 0))
+        val t = c.tasks.get(id)!!
+        assertEquals(LocalTime.of(19, 0), t.dueTime)
+        assertEquals(0, t.postponeCount)
+        assertEquals(Repeat.DAILY, t.repeat)
+        assertTrue(c.memory.all().any { it.source == com.friday.app.data.db.MemorySource.HABIT && it.text.contains("Gym bag") })
+        assertTrue(c.db.tasks().snoozesFor(id, 0).isEmpty())
     }
 
     @Test fun followUpNudgesOnlyOnce() = runBlocking<Unit> {
@@ -215,6 +268,529 @@ class DeviceTests {
         dark = true
         compose.waitForIdle()
         assertEquals(DarkColors, seen)
+    }
+
+    @Test fun snoozedPlaceReminderSurvivesResync() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Buy milk"))
+        val place = c.db.places().insert(com.friday.app.data.db.PlaceEntity(name = "Shop", lat = 1.0, lng = 1.0))
+        val cue = c.tasks.addPlaceCue(id, place, leave = false)
+        c.reminders.snooze(cue, 10)
+        c.scheduler.cancel(cue) // simulate the alarm being gone, then resync must re-arm it
+        c.db.tasks().updateCue(c.db.tasks().getCue(cue)!!.copy(snoozedUntil = System.currentTimeMillis() + 10 * 60_000))
+        c.scheduler.syncAll(false)
+        assertNotNull(alarm(cue))
+    }
+
+    @Test fun savedPlaceNamedShopBeatsErrand() = runBlocking<Unit> {
+        val shop = c.db.places().insert(com.friday.app.data.db.PlaceEntity(name = "Shop", lat = 1.0, lng = 1.0))
+        val res = c.assistant.handle("remind me to buy milk when I get to the shop", Source.CHAT)
+        val cue = c.db.tasks().allCues().single { it.taskId == res.taskId }
+        assertEquals(shop, cue.placeId)
+        assertNull(cue.placeType)
+    }
+
+    @Test fun errandCueSetsNoAlarmAndSurvivesResync() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Buy panadol"))
+        val cue = c.tasks.addPlaceTypeCue(id, "PHARMACY")
+        c.scheduler.syncAll(false)
+        assertNull(alarm(cue))
+        assertEquals("PHARMACY", c.db.tasks().getCue(cue)!!.placeType)
+    }
+
+    @Test fun completingRepeatingTaskResetsPostpones() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Water plants", dueDate = today, repeat = Repeat.DAILY))
+        c.tasks.postpone(id, 1); c.tasks.postpone(id, 1)
+        assertEquals(2, c.tasks.get(id)!!.postponeCount)
+        c.tasks.complete(id)
+        assertEquals(0, c.tasks.get(id)!!.postponeCount)
+    }
+
+    @Test fun monthlySaveStoresAnchorDay() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Rent", dueDate = LocalDate.of(2027, 1, 31), repeat = Repeat.MONTHLY))
+        assertEquals(31, c.tasks.get(id)!!.repeatDays)
+    }
+
+    @Test fun editingMonthlyDueDateMovesAnchor() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Rent", dueDate = LocalDate.of(2027, 1, 31), repeat = Repeat.MONTHLY))
+        c.tasks.save(c.tasks.get(id)!!.copy(dueDate = LocalDate.of(2027, 2, 15)))
+        assertEquals(15, c.tasks.get(id)!!.repeatDays)
+    }
+
+    @Test fun weeklyToMonthlyUsesDueDateDay() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Gym", dueDate = LocalDate.of(2027, 3, 9), repeat = Repeat.WEEKLY, repeatDays = 0b0010101))
+        c.tasks.save(c.tasks.get(id)!!.copy(repeat = Repeat.MONTHLY))
+        assertEquals(9, c.tasks.get(id)!!.repeatDays)
+    }
+
+    @Test fun postponingMonthlyKeepsAnchor() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Rent", dueDate = LocalDate.of(2027, 1, 31), repeat = Repeat.MONTHLY))
+        c.tasks.postpone(id, 1)
+        val t = c.tasks.get(id)!!
+        assertEquals(LocalDate.of(2027, 2, 1), t.dueDate)
+        assertEquals(31, t.repeatDays)
+    }
+
+    @Test fun titleEditKeepsMonthlyAnchorEvenWithZeroRepeatDays() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "Rent", dueDate = LocalDate.of(2027, 1, 31), repeat = Repeat.MONTHLY))
+        c.tasks.postpone(id, 28) // Feb 28, anchor stays 31
+        c.tasks.save(c.tasks.get(id)!!.copy(title = "x", repeatDays = 0))
+        assertEquals(31, c.tasks.get(id)!!.repeatDays)
+    }
+
+    @Test fun memoryDedupesAndTrims() = runBlocking<Unit> {
+        assertNotNull(c.memory.add("Hates long messages", com.friday.app.data.db.MemorySource.USER))
+        assertNull(c.memory.add("  hates LONG messages ", com.friday.app.data.db.MemorySource.CHAT))
+        val id = c.memory.add("x".repeat(250), com.friday.app.data.db.MemorySource.USER)
+        assertNotNull(id)
+        assertEquals(200, c.memory.all().first { it.id == id }.text.length)
+    }
+
+    @Test fun memoryCap() = runBlocking<Unit> {
+        repeat(100) { assertNotNull(c.memory.add("fact $it", com.friday.app.data.db.MemorySource.USER)) }
+        assertNull(c.memory.add("one too many", com.friday.app.data.db.MemorySource.USER))
+    }
+
+    @Test fun twoRememberActionsAddTwoMemoriesAndShowBoth() = runBlocking<Unit> {
+        val reply = com.friday.app.ai.AiReply(
+            reply = "Got it.",
+            actions = listOf(
+                com.friday.app.ai.AiAction(type = "REMEMBER", text = "Gym after 7 PM"),
+                com.friday.app.ai.AiAction(type = "REMEMBER", text = "Prefers short messages"),
+            ),
+        )
+        val res = c.ai.apply(reply, emptyList(), ctx, com.friday.app.ai.Lang.EN)
+        assertEquals(setOf("Gym after 7 PM", "Prefers short messages"), c.memory.all().map { it.text }.toSet())
+        assertTrue(res.text.contains("Remembered: Gym after 7 PM"))
+        assertTrue(res.text.contains("Remembered: Prefers short messages"))
+    }
+
+    // --- Smart timing: hold during focus, skip if started, bundle ---
+
+    private suspend fun timedTask(title: String, important: Boolean = false, due: LocalDate = today.plusDays(3)) =
+        c.tasks.save(TaskEntity(title = title, important = important, dueDate = due, dueTime = LocalTime.of(12, 0), durationMin = 30))
+
+    private suspend fun cueOf(taskId: Long, kind: CueKind) = c.db.tasks().cuesFor(taskId).first { it.kind == kind }
+
+    private fun showing(id: Int) = ctx.getSystemService(NotificationManager::class.java).activeNotifications.any { it.id == id }
+
+    /** A focus session in the test database only: no notification, end alarm or DND, so a real session is never disturbed. */
+    private suspend fun focusOn(taskId: Long, now: Long, minutes: Int = 25) =
+        c.db.focus().insert(FocusSessionEntity(taskId = taskId, taskTitle = "[test] focus", plannedMin = minutes, startedAt = now))
+
+    private suspend fun endFocus(session: Long, at: Long) = c.db.focus().update(c.db.focus().get(session)!!.copy(endedAt = at))
+
+    @Test fun reminderForOtherTaskIsHeldDuringFocusAndReleasedOnEnd() = runBlocking<Unit> {
+        // Drives the real FocusController (shared end alarm, focus notification): only when the app has no session of its own.
+        assumeTrue("real focus session running", ctx.container.focus.current() == null)
+        val a = timedTask("[test] A"); val b = cueOf(timedTask("[test] B"), CueKind.START)
+        val session = c.focus.start(a, "[test] focus", 25, dnd = false, shield = false)
+        try {
+            c.reminders.fire(b.id, System.currentTimeMillis())
+            val held = c.db.tasks().getCue(b.id)!!
+            assertTrue(held.held)
+            assertNull(held.firedKey)
+            c.focus.end(session, null, null)
+            val released = c.db.tasks().getCue(b.id)!!
+            assertFalse(released.held)
+            assertNotNull(released.firedKey)
+        } finally {
+            if (c.focus.current() != null) c.focus.end(session, null, null)
+        }
+    }
+
+    @Test fun heldReminderIsReleasedAfterFocus() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val a = timedTask("[test] A"); val b = cueOf(timedTask("[test] B"), CueKind.START)
+        val session = focusOn(a, now)
+        c.reminders.fire(b.id, now)
+        val held = c.db.tasks().getCue(b.id)!!
+        assertTrue(held.held)
+        assertNull(held.firedKey)
+        assertEquals(now + 25 * 60_000, held.snoozedUntil)
+        assertNotNull(alarm(b.id)) // backup: the alarm at the session's end delivers it even if release never runs
+        endFocus(session, now + 60_000)
+        c.reminders.releaseHeld(now + 60_000)
+        val released = c.db.tasks().getCue(b.id)!!
+        assertFalse(released.held)
+        assertNotNull(released.firedKey)
+        assertNull(released.snoozedUntil)
+        assertEquals(now + 60_000, released.firedAt)
+    }
+
+    @Test fun heldReminderReHoldsWhenFocusExtended() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val a = timedTask("[test] A"); val b = cueOf(timedTask("[test] B"), CueKind.START)
+        val session = focusOn(a, now)
+        c.reminders.fire(b.id, now)
+        val oldEnd = c.db.tasks().getCue(b.id)!!.snoozedUntil!!
+        c.db.focus().update(c.db.focus().get(session)!!.copy(plannedMin = 35)) // "+10 min"
+        c.reminders.fire(b.id, oldEnd) // the hold alarm goes off at the old end
+        val again = c.db.tasks().getCue(b.id)!!
+        assertTrue(again.held)
+        assertNull(again.firedKey)
+        assertEquals(oldEnd + 10 * 60_000, again.snoozedUntil)
+    }
+
+    @Test fun importantUrgentPassesThroughFocus() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val a = timedTask("[test] A"); val b = cueOf(timedTask("[test] B", important = true, due = today), CueKind.START)
+        focusOn(a, now)
+        c.reminders.fire(b.id, now)
+        val cue = c.db.tasks().getCue(b.id)!!
+        assertFalse(cue.held)
+        assertNotNull(cue.firedKey)
+    }
+
+    @Test fun snoozedReminderHeldDuringFocusStillArrivesAfter() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val a = timedTask("[test] A"); val b = cueOf(timedTask("[test] B"), CueKind.START)
+        c.reminders.fire(b.id, now - 60_000)
+        c.reminders.snooze(b.id, 5, now - 60_000)
+        val session = focusOn(a, now)
+        c.reminders.fire(b.id, now + 4 * 60_000) // snooze ends mid-focus: held
+        assertTrue(c.db.tasks().getCue(b.id)!!.held)
+        endFocus(session, now + 10 * 60_000)
+        c.reminders.releaseHeld(now + 10 * 60_000)
+        val released = c.db.tasks().getCue(b.id)!!
+        assertFalse(released.held)
+        assertNull(released.snoozedUntil)
+        assertEquals(now + 10 * 60_000, released.firedAt) // posted again, not dropped as a duplicate of the first alert
+    }
+
+    @Test fun startReminderSkippedWhenFocusingOnThatTask() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val a = timedTask("[test] A")
+        val start = cueOf(a, CueKind.START)
+        focusOn(a, now)
+        c.reminders.fire(start.id, now)
+        val cue = c.db.tasks().getCue(start.id)!!
+        assertNotNull(cue.firedKey)
+        assertFalse(cue.held)
+        assertFalse(showing(NotificationIds.reminder(start.id)))
+    }
+
+    @Test fun prepSkippedWhenFocusOnTaskEnded10MinAgo() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val a = timedTask("[test] A")
+        val prep = cueOf(a, CueKind.PREP)
+        endFocus(focusOn(a, now - 35 * 60_000), now - 10 * 60_000)
+        c.reminders.fire(prep.id, now)
+        assertNotNull(c.db.tasks().getCue(prep.id)!!.firedKey)
+        assertFalse(showing(NotificationIds.reminder(prep.id)))
+    }
+
+    @Test fun prepNotSkippedWhenTaskMerelyTouched() = runBlocking<Unit> {
+        assumeTrue("notifications off", c.notifier.enabled())
+        val now = System.currentTimeMillis()
+        val a = timedTask("[test] A")
+        val prep = cueOf(a, CueKind.PREP)
+        c.db.tasks().touch(a, now - 5 * 60_000) // e.g. opened in the editor: not "started"
+        c.reminders.fire(prep.id, now)
+        repeat(50) { if (!showing(NotificationIds.reminder(prep.id))) delay(100) }
+        assertTrue(showing(NotificationIds.reminder(prep.id)))
+    }
+
+    @Test fun prepPostedAfterUncheckedFocusSession() = runBlocking<Unit> {
+        assumeTrue("notifications off", c.notifier.enabled())
+        val now = System.currentTimeMillis()
+        val a = timedTask("[test] A")
+        val prep = cueOf(a, CueKind.PREP)
+        focusOn(a, now - 2 * 60 * 60_000) // time ran out 95 min ago, never checked in: still open
+        c.reminders.fire(prep.id, now)
+        repeat(50) { if (!showing(NotificationIds.reminder(prep.id))) delay(100) }
+        assertTrue(showing(NotificationIds.reminder(prep.id)))
+    }
+
+    @Test fun prepPostedAfterFocusPausedLongAgo() = runBlocking<Unit> {
+        assumeTrue("notifications off", c.notifier.enabled())
+        val now = System.currentTimeMillis()
+        val a = timedTask("[test] A")
+        val prep = cueOf(a, CueKind.PREP)
+        c.db.focus().insert(
+            FocusSessionEntity(taskId = a, taskTitle = "[test] focus", plannedMin = 25, startedAt = now - 2 * 60 * 60_000 - 5 * 60_000, pausedAt = now - 2 * 60 * 60_000),
+        )
+        c.reminders.fire(prep.id, now)
+        repeat(50) { if (!showing(NotificationIds.reminder(prep.id))) delay(100) }
+        assertTrue(showing(NotificationIds.reminder(prep.id)))
+    }
+
+    @Test fun postponedHeldReminderIsNotFiredEarly() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val a = timedTask("[test] A"); val bId = timedTask("[test] B"); val b = cueOf(bId, CueKind.START)
+        val session = focusOn(a, now)
+        c.reminders.fire(b.id, now)
+        assertTrue(c.db.tasks().getCue(b.id)!!.held)
+        c.tasks.postpone(bId)
+        assertFalse(c.db.tasks().getCue(b.id)!!.held)
+        endFocus(session, now + 60_000)
+        c.reminders.releaseHeld(now + 60_000)
+        val after = c.db.tasks().getCue(b.id)!!
+        assertNull(after.firedKey)
+        assertFalse(showing(NotificationIds.reminder(b.id)))
+        assertNotNull(alarm(b.id)) // still armed for the new date
+    }
+
+    @Test fun burstOfRemindersIsBundled() = runBlocking<Unit> {
+        assumeTrue("notifications off", c.notifier.enabled())
+        val x = cueOf(timedTask("[test] X"), CueKind.START)
+        val y = cueOf(timedTask("[test] Y"), CueKind.START)
+        c.reminders.fire(x.id)
+        repeat(50) { if (!showing(NotificationIds.reminder(x.id))) delay(100) }
+        c.reminders.fire(y.id)
+        repeat(50) { if (!showing(NotificationIds.BUNDLE)) delay(100) }
+        assertTrue(showing(NotificationIds.BUNDLE))
+        c.notifier.cancelReminder(y.id)
+        repeat(50) { if (showing(NotificationIds.BUNDLE)) delay(100) }
+        assertFalse(showing(NotificationIds.BUNDLE))
+    }
+
+    @Test fun staleSmartTextNotUsed() {
+        val t = TaskEntity(id = 1_000_100, title = "Essay")
+        val cue = com.friday.app.data.db.CueEntity(taskId = t.id, kind = CueKind.END, anchor = com.friday.app.data.db.CueAnchor.END, smartText = "AI line", smartKey = 111L)
+        assertEquals("AI line", com.friday.app.ui.Fmt.reminderBody(ctx, t, cue, null, 111L))
+        val offline = com.friday.app.ui.Fmt.cueMessage(ctx, t, cue)
+        assertEquals(offline, com.friday.app.ui.Fmt.reminderBody(ctx, t, cue, null, 222L))
+        assertEquals(offline, com.friday.app.ui.Fmt.reminderBody(ctx, t, cue, null, null))
+        val body = com.friday.app.ui.Fmt.reminderBody(ctx, t, cue.copy(smartKey = null), com.friday.app.domain.Why.FirstStep("x".repeat(300)), 222L)
+        assertTrue(body.length <= 140 && body.startsWith(offline + "\n"))
+    }
+
+    // --- Place awareness: fake DND, the test-only visit store, act() directly; no Overpass, no stillness updates ---
+
+    private fun atQuietPlace(now: Long) = c.visits.set(Visit(PlaceKind.HOLD, 0.0, 0.0, now, holding = true))
+
+    @Test fun holdPlaceHoldsAndLeaveReleases() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val b = cueOf(timedTask("[test] B"), CueKind.START)
+        atQuietPlace(now)
+        c.reminders.fire(b.id, now)
+        val held = c.db.tasks().getCue(b.id)!!
+        assertTrue(held.held)
+        assertNull(held.firedKey)
+        c.awareness.left(now + 60_000)
+        val released = c.db.tasks().getCue(b.id)!!
+        assertFalse(released.held)
+        assertEquals(now + 60_000, released.firedAt)
+        assertNull(c.visits.get())
+    }
+
+    @Test fun holdPlaceCapIs3Hours() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val b = cueOf(timedTask("[test] B"), CueKind.START)
+        atQuietPlace(now)
+        c.reminders.fire(b.id, now)
+        val cap = now + 3 * 60 * 60_000L
+        assertEquals(cap, c.db.tasks().getCue(b.id)!!.snoozedUntil)
+        assertNotNull(alarm(b.id))
+        c.reminders.fire(b.id, cap) // never saw the user leave: the cap delivers it anyway
+        val delivered = c.db.tasks().getCue(b.id)!!
+        assertFalse(delivered.held)
+        assertEquals(cap, delivered.firedAt)
+    }
+
+    @Test fun errandFiresAtMatchingKind() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val cue = c.tasks.addPlaceTypeCue(c.tasks.save(TaskEntity(title = "[test] Buy plasters")), "STORE")
+        c.awareness.act(PlaceKind.PHARMACY, now)
+        val first = c.db.tasks().getCue(cue)!!.firedAt
+        assertEquals(now, first)
+        c.awareness.act(PlaceKind.PHARMACY, now + 10 * 60_000) // still within the 30 min cooldown
+        assertEquals(first, c.db.tasks().getCue(cue)!!.firedAt)
+    }
+
+    @Test fun focusEndDuringHoldPlaceStaysQuiet() = runBlocking<Unit> {
+        // Test-db session plus what FocusController.end() does (restore "focus", release held), so a real session is never touched.
+        val now = System.currentTimeMillis()
+        atQuietPlace(now)
+        c.dnd.enable("place")
+        val a = timedTask("[test] A"); val b = cueOf(timedTask("[test] B"), CueKind.START)
+        val session = focusOn(a, now)
+        c.dnd.enable("focus")
+        c.reminders.fire(b.id, now)
+        assertEquals(now + 25 * 60_000, c.db.tasks().getCue(b.id)!!.snoozedUntil) // held by focus first
+        endFocus(session, now + 60_000)
+        c.dnd.restore("focus")
+        c.reminders.releaseHeld(now + 60_000)
+        assertEquals(setOf("place"), fakeDnd.reasons) // still silent: the mosque outlives the focus session
+        val cue = c.db.tasks().getCue(b.id)!!
+        assertTrue(cue.held)
+        assertEquals(now + 60_000 + 3 * 60 * 60_000L, cue.snoozedUntil) // now held by the place
+    }
+
+    @Test fun focusHeldCueStaysQuietAtPlace() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val a = timedTask("[test] A"); val b = cueOf(timedTask("[test] B"), CueKind.START)
+        focusOn(a, now)
+        c.reminders.fire(b.id, now)
+        val focusEnd = now + 25 * 60_000
+        assertEquals(focusEnd, c.db.tasks().getCue(b.id)!!.snoozedUntil)
+        atQuietPlace(now + 60_000)
+        c.reminders.fire(b.id, focusEnd) // its own alarm beats releaseHeld
+        val cue = c.db.tasks().getCue(b.id)!!
+        assertTrue(cue.held)
+        assertNull(cue.firedKey)
+        assertEquals(focusEnd + 3 * 60 * 60_000L, cue.snoozedUntil)
+    }
+
+    private fun pharmacyHere() {
+        fakeSystem.location = Location("test").apply { latitude = 3.1; longitude = 101.6 }
+        fakeSystem.tags = listOf(mapOf("amenity" to "pharmacy"))
+    }
+
+    @Test fun staleVisitDoesNotBlockNewStops() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val cue = c.tasks.addPlaceTypeCue(c.tasks.save(TaskEntity(title = "[test] Buy plasters")), "PHARMACY")
+        c.visits.set(Visit(PlaceKind.STORE, 0.0, 0.0, now - 4 * 60 * 60_000L, holding = false))
+        pharmacyHere()
+        c.awareness.stillFor3Min(now)
+        assertEquals(now, c.visits.get()!!.startedAt)
+        assertEquals(PlaceKind.PHARMACY, c.visits.get()!!.kind)
+        assertEquals(now, c.db.tasks().getCue(cue)!!.firedAt)
+    }
+
+    @Test fun visitNotKeptWhenFenceFails() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val cue = c.tasks.addPlaceTypeCue(c.tasks.save(TaskEntity(title = "[test] Buy plasters")), "PHARMACY")
+        pharmacyHere()
+        fakeSystem.watchOk = false
+        c.awareness.stillFor3Min(now)
+        assertNull(c.visits.get())
+        assertEquals(now, c.db.tasks().getCue(cue)!!.firedAt) // the one-shot errand still fires
+    }
+
+    @Test fun noSilenceClaimWithoutDndAccess() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        fakeSystem.dndAccess = false
+        c.visits.set(Visit(PlaceKind.HOLD, 0.0, 0.0, now, holding = false))
+        c.awareness.act(PlaceKind.HOLD, now)
+        assertTrue(fakeSystem.notes.isEmpty())
+        assertTrue(fakeDnd.reasons.isEmpty())
+        val b = cueOf(timedTask("[test] B"), CueKind.START)
+        c.reminders.fire(b.id, now)
+        val cue = c.db.tasks().getCue(b.id)!!
+        assertFalse(cue.held) // the phone isn't silent, so holding would only delay reminders with no notice
+        assertEquals(now, cue.firedAt)
+        assertFalse(c.visits.holding(now))
+    }
+
+    @Test fun dndReasonsPersistInPrefs() {
+        val prefs = ctx.getSharedPreferences("dnd_reasons_test", Context.MODE_PRIVATE) // never the real "focus_dnd"
+        prefs.edit().clear().commit()
+        Dnd.addReason(prefs, "focus")
+        Dnd.addReason(prefs, "place")
+        val afterFocus = Dnd.removeReason(prefs, "focus")
+        assertEquals(setOf("place"), afterFocus)
+        assertFalse(DndReasons.shouldRestore(afterFocus))
+        assertEquals(setOf("place"), prefs.getStringSet("reasons", null))
+        assertTrue(DndReasons.shouldRestore(Dnd.removeReason(prefs, "place")))
+        prefs.edit().clear().commit()
+    }
+
+    @Test fun placeCapEndsQuietVisit() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val b = cueOf(timedTask("[test] B"), CueKind.START)
+        atQuietPlace(now)
+        c.dnd.enable("place")
+        c.reminders.fire(b.id, now)
+        assertTrue(c.db.tasks().getCue(b.id)!!.held)
+        val cap = now + 3 * 60 * 60_000L
+        c.awareness.capReached(now, cap)
+        assertEquals(emptySet<String>(), fakeDnd.reasons)
+        val released = c.db.tasks().getCue(b.id)!!
+        assertFalse(released.held)
+        assertEquals(cap, released.firedAt)
+        assertNull(c.visits.get())
+    }
+
+    @Test fun placeCapForEndedVisitDoesNothing() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        c.awareness.capReached(now - 60_000, now) // no visit at all
+        assertNull(c.visits.get())
+        atQuietPlace(now)
+        c.dnd.enable("place")
+        c.awareness.capReached(now - 60_000, now) // an older visit's cap: the current one stays
+        assertEquals(now, c.visits.get()!!.startedAt)
+        assertEquals(setOf("place"), fakeDnd.reasons)
+    }
+
+    @Test fun followUpSkippedAtQuietPlace() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val b = cueOf(timedTask("[test] B"), CueKind.START)
+        c.reminders.fire(b.id, now)
+        c.notifier.cancelReminder(b.id)
+        atQuietPlace(now + 60_000)
+        c.reminders.followUp(b.id, now + 10 * 60_000)
+        val cue = c.db.tasks().getCue(b.id)!!
+        assertEquals(cue.firedKey, cue.ackKey)
+        delay(500)
+        assertFalse(showing(NotificationIds.reminder(b.id)))
+    }
+
+    // --- Final review fixes ---
+
+    private suspend fun taskDueAgo(title: String, seconds: Long): Long {
+        val t = java.time.LocalDateTime.now().minusSeconds(seconds)
+        return c.tasks.save(TaskEntity(title = title, dueDate = t.toLocalDate(), dueTime = t.toLocalTime()))
+    }
+
+    @Test fun justPassedReminderSurvivesColdStartSync() = runBlocking<Unit> {
+        val cue = cueOf(taskDueAgo("[test] just now", 30), CueKind.START) // trigger 30–90 s ago (minute precision)
+        c.scheduler.syncAll(fireMissed = false) // FridayApp.onCreate, racing the receiver
+        c.reminders.fire(cue.id)
+        assertNotNull(c.db.tasks().getCue(cue.id)!!.firedAt) // posted, not silently marked as fired
+    }
+
+    @Test fun reminderMissedLongAgoStillMarkedFiredOnSync() = runBlocking<Unit> {
+        val cue = cueOf(taskDueAgo("[test] long ago", 10 * 60), CueKind.START)
+        c.scheduler.syncAll(fireMissed = false)
+        val synced = c.db.tasks().getCue(cue.id)!!
+        assertNotNull(synced.firedKey)
+        c.reminders.fire(cue.id)
+        assertNull(c.db.tasks().getCue(cue.id)!!.firedAt)
+    }
+
+    @Test fun editingTaskClearsAiLine() = runBlocking<Unit> {
+        val id = timedTask("[test] Essay")
+        val cue = cueOf(id, CueKind.START)
+        c.db.tasks().setSmart(cue.id, "Old AI line", 1L)
+        c.tasks.save(c.tasks.get(id)!!.copy(title = "[test] Essay draft"))
+        assertNull(c.db.tasks().getCue(cue.id)!!.smartText)
+        c.db.tasks().setSmart(cue.id, "Old AI line", 1L)
+        c.tasks.save(c.tasks.get(id)!!.copy(important = true))
+        assertNull(c.db.tasks().getCue(cue.id)!!.smartText)
+        c.db.tasks().setSmart(cue.id, "Old AI line", 1L)
+        c.tasks.updateCue(c.db.tasks().getCue(cue.id)!!.copy(message = "My words"))
+        val edited = c.db.tasks().getCue(cue.id)!!
+        assertNull(edited.smartText)
+        assertNull(edited.smartKey)
+    }
+
+    @Test fun snoozingDayReminderTeachesNothing() = runBlocking<Unit> {
+        val id = c.tasks.save(TaskEntity(title = "[test] Laundry", dueDate = today.plusDays(1), repeat = Repeat.DAILY))
+        val day = cueOf(id, CueKind.DAY)
+        repeat(3) { c.reminders.snooze(day.id, 60) }
+        assertTrue(c.db.tasks().snoozesFor(id, 0).isEmpty())
+    }
+
+    @Test fun pausingFocusReleasesHeldReminders() = runBlocking<Unit> {
+        // pause() cancels the shared end alarm and posts the focus notification: skip while the app's own session still has an
+        // end alarm (running, or time up only moments ago); a paused one gets its notification back afterwards.
+        val now = System.currentTimeMillis()
+        val real = ctx.container.focus.current()
+        assumeTrue("real focus session running", real == null || real.pausedAt != null || FocusMath.remainingMs(real, now) < -5 * 60_000)
+        val a = timedTask("[test] A"); val b = cueOf(timedTask("[test] B"), CueKind.START)
+        val session = focusOn(a, now)
+        c.reminders.fire(b.id, now)
+        assertTrue(c.db.tasks().getCue(b.id)!!.held)
+        try {
+            c.focus.pause(session)
+        } finally {
+            c.notifier.cancelFocus()
+            if (real?.pausedAt != null) ctx.container.notifier.focusOngoing(real)
+        }
+        val released = c.db.tasks().getCue(b.id)!!
+        assertFalse(released.held)
+        assertNotNull(released.firedAt)
     }
 
     private fun alarm(cueId: Long): PendingIntent? = PendingIntent.getBroadcast(

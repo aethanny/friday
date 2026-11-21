@@ -92,4 +92,37 @@ class OnlineAiTest {
             server.shutdown()
         }
     }
+
+    @Test fun reminderWithoutTimeRejectedEvenWithSpaces() {
+        assertNull(AiActions.validate(AiAction(type = " CREATE_REMINDER ", title = "x"), emptySet(), java.time.LocalDate.of(2026, 11, 20)))
+    }
+
+    @Test fun rememberValidated() {
+        assertEquals(Action.Remember("Gym after 7 PM"), AiActions.validate(AiAction(type = "REMEMBER", text = "  Gym after 7 PM "), emptySet(), today))
+        assertNull(AiActions.validate(AiAction(type = "REMEMBER", text = "  "), emptySet(), today))
+    }
+
+    @Test fun prepareLinesIgnoresUnknownIdsAndTrims() {
+        val long = "x".repeat(200)
+        val raw = "Sure {\"lines\":[{\"cueId\":1,\"text\":\"  Short and warm  \"},{\"cueId\":99,\"text\":\"no\"},{\"cueId\":2,\"text\":\"$long\"},{\"cueId\":3,\"text\":\"   \"}]}"
+        val m = AiActions.parseLines(raw, setOf(1L, 2L, 3L))
+        assertEquals(setOf(1L, 2L), m.keys)
+        assertEquals("Short and warm", m[1L])
+        assertEquals(90, m[2L]!!.length)
+    }
+
+    @Test fun linesNeverReplaceTheUsersOwnWording() {
+        val now = java.time.LocalDateTime.of(2026, 11, 18, 9, 0)
+        val t = com.friday.app.data.db.TaskEntity(id = 1, title = "Essay", dueDate = today, dueTime = LocalTime.of(12, 0))
+        val start = com.friday.app.data.db.CueEntity(id = 10, taskId = 1, kind = com.friday.app.data.db.CueKind.START, anchor = com.friday.app.data.db.CueAnchor.START)
+        val own = com.friday.app.data.db.CueEntity(id = 11, taskId = 1, kind = com.friday.app.data.db.CueKind.CUSTOM, anchor = com.friday.app.data.db.CueAnchor.START, offsetMin = 5, message = "Bring the USB")
+        val due = AiActions.linesDue(listOf(com.friday.app.data.db.TaskWithDetails(t, emptyList(), listOf(start, own))), now)
+        assertEquals(listOf(10L), due.map { it.second.id })
+    }
+
+    @Test fun thinkIsParsedButNotReply() {
+        val r = AiActions.parse("""{"think":"user is tired","reply":"Rest first.","actions":[]}""")!!
+        assertEquals("Rest first.", r.reply)
+        assertEquals("user is tired", r.think)
+    }
 }

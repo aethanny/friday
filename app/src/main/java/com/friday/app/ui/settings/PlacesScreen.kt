@@ -3,7 +3,15 @@ package com.friday.app.ui.settings
 import androidx.activity.result.IntentSenderRequest
 import android.Manifest
 import android.location.Location
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.provider.Settings
+import com.friday.app.focus.Dnd
 import android.os.Build
+import androidx.core.content.ContextCompat
+import com.friday.app.BuildConfig
+import com.friday.app.data.AppSettings
+import com.friday.app.ui.components.SwitchRow
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -75,9 +83,40 @@ fun PlacesScreen(nav: NavController) {
     val foreground = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
         if (r[Manifest.permission.ACCESS_FINE_LOCATION] == true || r[Manifest.permission.ACCESS_COARSE_LOCATION] == true) locate()
     }
+    // Place awareness: precise location, physical activity (API 29+), location all the time, then Do Not Disturb access.
+    // Any "no" (approximate location included) stops the chain, leaves it off and says why: never a re-ask loop.
+    val settings by c.settings.flow.collectAsStateWithLifecycle(initialValue = AppSettings())
+    var awareDenied by remember { mutableStateOf(false) }
+    var wantAware by remember { mutableStateOf(false) }
+    lateinit var nextAwareStep: () -> Unit
+    val awareLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+        resume++
+        if (c.places.hasLocation()) nextAwareStep() else awareDenied = true
+    }
+    val activity = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) nextAwareStep() else awareDenied = true
+    }
+    val dndAccess = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (Dnd.hasAccess(ctx)) nextAwareStep() else awareDenied = true
+    }
+    nextAwareStep = {
+        when {
+            !c.places.hasLocation() -> awareLocation.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            Build.VERSION.SDK_INT >= 29 && ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED ->
+                activity.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+            !c.places.hasBackground() -> { wantAware = true; askBackground = true }
+            !Dnd.hasAccess(ctx) -> dndAccess.launch(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+            else -> { awareDenied = false; scope.launch { c.awareness.enable() } }
+        }
+    }
     val background = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         resume++
         scope.launch { c.places.registerAll() }
+        if (wantAware) { wantAware = false; if (c.places.hasBackground()) nextAwareStep() else awareDenied = true }
+    }
+    val skipBackground = {
+        askBackground = false
+        if (wantAware) { wantAware = false; awareDenied = true }
     }
 
     LargeTitleScreen(title = stringResource(R.string.places_title), onBack = { nav.popBackStack() }) {
@@ -95,6 +134,20 @@ fun PlacesScreen(nav: NavController) {
                         else foreground.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                     },
                 )
+            }
+        }
+        item(key = "aware") {
+            Section(footer = stringResource(if (awareDenied) R.string.place_aware_denied else R.string.place_aware_sub), modifier = Modifier.padding(top = 22.dp)) {
+                SwitchRow(stringResource(R.string.place_aware), settings.placeAwareness, { on ->
+                    awareDenied = false
+                    if (on) nextAwareStep() else scope.launch { c.awareness.disable() }
+                }, icon = R.drawable.ic_location_on, iconBackground = colors.accent)
+                if (BuildConfig.DEBUG) {
+                    RowDivider(60.dp)
+                    ListRow(stringResource(R.string.place_check_now), icon = R.drawable.ic_location_on, iconBackground = colors.textTertiary, onClick = {
+                        scope.launch { c.awareness.stillFor3Min() }
+                    })
+                }
             }
         }
         if (hasLocation && !hasBackground && places.isNotEmpty()) {
@@ -145,7 +198,7 @@ fun PlacesScreen(nav: NavController) {
         }
     }
     if (askBackground) {
-        FridaySheet(onDismiss = { askBackground = false }) {
+        FridaySheet(onDismiss = skipBackground) {
             Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 28.dp)) {
                 Text(stringResource(R.string.places_bg_title), style = MaterialTheme.typography.headlineSmall, color = colors.text)
                 Spacer(Modifier.height(8.dp))
@@ -155,7 +208,7 @@ fun PlacesScreen(nav: NavController) {
                     askBackground = false
                     if (Build.VERSION.SDK_INT >= 29) background.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                 }, Modifier.fillMaxWidth(), icon = R.drawable.ic_location_on)
-                TextAction(stringResource(R.string.not_now), { askBackground = false }, color = colors.textSecondary)
+                TextAction(stringResource(R.string.not_now), skipBackground, color = colors.textSecondary)
             }
         }
     }

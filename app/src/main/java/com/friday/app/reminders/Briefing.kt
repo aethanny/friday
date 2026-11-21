@@ -79,6 +79,7 @@ class BriefingReceiver : BroadcastReceiver() {
         launchAsync {
             b.post()
             b.schedule(LocalDateTime.now().plusMinutes(1))
+            context.container.ai.prepareLines()
         }
     }
 }

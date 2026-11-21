@@ -5,11 +5,14 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
+import android.util.Log
 import com.friday.app.container
 import com.friday.app.data.db.FocusOutcome
 import com.friday.app.data.db.FocusSessionEntity
 import com.friday.app.data.db.FridayDatabase
+import com.friday.app.domain.DndReasons
 import com.friday.app.domain.FocusMath
 import com.friday.app.reminders.Notifier
 import com.friday.app.reminders.ReminderScheduler
@@ -25,6 +28,10 @@ class FocusController(
     private val db: FridayDatabase,
     private val notifier: Notifier,
     private val scheduler: ReminderScheduler,
+    private val dnd: DndControl = SystemDnd(ctx),
+    /** Runs once the session stops silencing reminders (ended, paused or time up): releases the ones held back. */
+    private val onEnded: suspend () -> Unit = {},
+    // Last so callers can keep passing the clock as a trailing lambda.
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val dao = db.focus()
@@ -41,7 +48,7 @@ class FocusController(
         val saved = s.copy(id = id)
         armEnd(saved)
         notifier.focusOngoing(saved)
-        if (dnd) Dnd.enable(ctx)
+        if (dnd) this.dnd.enable("focus")
         if (shield) ShieldService.start(ctx)
         return id
     }
@@ -53,6 +60,7 @@ class FocusController(
         dao.update(p)
         cancelEnd()
         notifier.focusOngoing(p)
+        releaseHeld() // a paused session silences nothing, so held reminders arrive now
     }
 
     suspend fun resume(id: Long) {
@@ -71,7 +79,7 @@ class FocusController(
         if (u.pausedAt == null) armEnd(u)
         notifier.cancelFocusDone()
         notifier.focusOngoing(u)
-        if (u.dnd) Dnd.enable(ctx)
+        if (u.dnd) dnd.enable("focus")
         if (u.shield) ShieldService.start(ctx)
     }
 
@@ -84,6 +92,7 @@ class FocusController(
         e.taskId?.let { db.tasks().touch(it) }
         stopSideEffects()
         notifier.cancelFocusDone()
+        releaseHeld()
         return e
     }
 
@@ -104,6 +113,7 @@ class FocusController(
         if (FocusMath.remainingMs(s, now()) > 5_000) { armEnd(s); return }
         stopSideEffects()
         notifier.focusDone(s)
+        releaseHeld()
     }
 
     suspend fun restoreAfterRestart() {
@@ -116,10 +126,15 @@ class FocusController(
         } else timeUp(s.id)
     }
 
+    /** A reminder failure must never stop focus from ending. */
+    private suspend fun releaseHeld() {
+        runCatching { onEnded() }.onFailure { Log.w("FocusController", "releasing held reminders failed", it) }
+    }
+
     private fun stopSideEffects() {
         cancelEnd()
         notifier.cancelFocus()
-        Dnd.restore(ctx)
+        dnd.restore("focus")
         ShieldService.stop(ctx)
     }
 
@@ -150,21 +165,41 @@ class FocusEndReceiver : BroadcastReceiver() {
     }
 }
 
+/** Do Not Disturb with a reason, so focus ending never un-silences a mosque (and the other way round). Faked in tests. */
+interface DndControl {
+    fun enable(reason: String)
+    fun restore(reason: String)
+}
+
+class SystemDnd(private val ctx: Context) : DndControl {
+    override fun enable(reason: String) = Dnd.enable(ctx, reason)
+    override fun restore(reason: String) = Dnd.restore(ctx, reason)
+}
+
 /**
  * Turns on Do Not Disturb (priority only) during focus and puts the user's own setting back
  * afterwards. Reminders still come through so FRIDAY can reach the user for the focused task.
  */
 object Dnd {
     private const val PREFS = "focus_dnd"
+    private const val REASONS = "reasons"
 
     private fun nm(ctx: Context) = ctx.getSystemService(NotificationManager::class.java)
 
     fun hasAccess(ctx: Context) = nm(ctx).isNotificationPolicyAccessGranted
 
-    fun enable(ctx: Context) {
+    /** Adds [reason] to the stored set and returns it. Prefs only, never the system policy, so tests can use their own file. */
+    fun addReason(prefs: SharedPreferences, reason: String): Set<String> =
+        DndReasons.add(prefs.getStringSet(REASONS, null).orEmpty(), reason).also { prefs.edit().putStringSet(REASONS, it).apply() }
+
+    fun removeReason(prefs: SharedPreferences, reason: String): Set<String> =
+        DndReasons.remove(prefs.getStringSet(REASONS, null).orEmpty(), reason).also { prefs.edit().putStringSet(REASONS, it).apply() }
+
+    fun enable(ctx: Context, reason: String) {
         val nm = nm(ctx)
         if (!nm.isNotificationPolicyAccessGranted) return
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        addReason(prefs, reason)
         if (prefs.getBoolean("active", false)) return
         val p = nm.notificationPolicy
         prefs.edit()
@@ -181,9 +216,10 @@ object Dnd {
         nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY)
     }
 
-    fun restore(ctx: Context) {
+    fun restore(ctx: Context, reason: String) {
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("active", false)) return
+        val after = removeReason(prefs, reason)
+        if (!DndReasons.shouldRestore(after) || !prefs.getBoolean("active", false)) return
         val nm = nm(ctx)
         if (nm.isNotificationPolicyAccessGranted) {
             nm.notificationPolicy = NotificationManager.Policy(

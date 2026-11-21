@@ -187,6 +187,8 @@ fun SettingsScreen(nav: NavController) {
                 SwitchRow(stringResource(R.string.set_follow_up), st.followUp, { v -> vm.set { setFollowUp(v) } }, subtitle = stringResource(R.string.set_follow_up_sub), icon = R.drawable.ic_notifications, iconBackground = c.red)
                 RowDivider(60.dp)
                 ListRow(stringResource(R.string.places_title), icon = R.drawable.ic_location_on, iconBackground = c.red, onClick = { nav.navigate("settings/places") })
+                RowDivider(60.dp)
+                ListRow(stringResource(R.string.memory_title), icon = R.drawable.ic_info, iconBackground = c.red, onClick = { nav.navigate("settings/memory") })
             }
         }
         item(key = "quiet") {

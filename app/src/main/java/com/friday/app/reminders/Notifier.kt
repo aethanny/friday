@@ -16,6 +16,7 @@ import com.friday.app.data.db.FocusSessionEntity
 import com.friday.app.data.db.TaskEntity
 import com.friday.app.domain.FocusMath
 import com.friday.app.ui.Fmt
+import java.time.LocalTime
 
 object Channels {
     const val REMINDERS = "reminders"
@@ -31,6 +32,8 @@ object NotificationIds {
     const val FOCUS_DONE = 2
     const val BRIEFING = 3
     const val SHIELD = 4
+    const val PLACE = 5
+    const val BUNDLE = 9_999
     fun reminder(cueId: Long) = 10_000 + cueId.toInt()
 }
 
@@ -41,7 +44,18 @@ object Extras {
     const val MINUTES = "friday.minutes"
 }
 
+/** The reminder's second button (the first is Start focus / Mark done / Got it). */
+sealed interface SecondAction {
+    data object SnoozePicker : SecondAction
+    data class MoveTo(val time: LocalTime) : SecondAction
+}
+
 class Notifier(private val ctx: Context) {
+    private companion object {
+        const val GROUP = "friday.reminders"
+        const val BUNDLE_WINDOW_MS = 2 * 60_000L
+    }
+
     private val nm = ctx.getSystemService(NotificationManager::class.java)
     private val accent = 0xFF007AFF.toInt()
 
@@ -91,23 +105,34 @@ class Notifier(private val ctx: Context) {
     fun isPrimary(t: TaskEntity, c: CueEntity) =
         c.kind == CueKind.DAY || c.kind == CueKind.END || (c.kind == CueKind.START && t.durationMin == null) ||
             // "Remind me to bring my charger when I leave home": the place reminder is the whole task.
-            (c.placeId != null && t.dueDate == null)
+            ((c.placeId != null || c.placeType != null) && t.dueDate == null)
+
+    /** Other FRIDAY reminders on screen, newest first (the summary and this cue's own notification excluded). */
+    private fun otherReminders(cueId: Long) = nm.activeNotifications
+        .filter { it.id >= 10_000 && it.id != NotificationIds.reminder(cueId) }
+        .sortedByDescending { it.postTime }
+
+    /** True when another reminder arrived less than 2 minutes ago and is still showing: this one joins it quietly. */
+    fun shouldBundle(cueId: Long): Boolean =
+        otherReminders(cueId).any { System.currentTimeMillis() - it.postTime < BUNDLE_WINDOW_MS }
 
     @SuppressLint("MissingPermission")
-    fun postReminder(t: TaskEntity, c: CueEntity, channel: String, followUp: Boolean, snoozeMin: Int) {
+    fun postReminder(t: TaskEntity, c: CueEntity, channel: String, followUp: Boolean, body: String, second: SecondAction, bundle: Boolean) {
         if (!enabled()) return
+        val others = otherReminders(c.id) // read before notify(): the new one may not be listed yet
         val base = (c.id * 8).toInt()
-        val text = Fmt.cueMessage(ctx, t, c)
         val b = NotificationCompat.Builder(ctx, channel)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(accent)
             .setContentTitle(t.title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(openAppIntent(base, taskId = t.id, cueId = c.id))
+            .setGroup(GROUP)
+            .setSilent(bundle)
         if (followUp) b.setSubText(ctx.getString(R.string.follow_up_subtext))
         when {
             c.kind == CueKind.START && t.durationMin != null ->
@@ -115,15 +140,49 @@ class Notifier(private val ctx: Context) {
             isPrimary(t, c) -> b.addAction(0, ctx.getString(R.string.mark_done), receiverIntent(ReminderReceiver.ACTION_DONE, c.id, base + 1))
             else -> b.addAction(0, ctx.getString(R.string.got_it), receiverIntent(ReminderReceiver.ACTION_ACK, c.id, base + 1))
         }
-        b.addAction(0, ctx.getString(R.string.snooze_n, Fmt.duration(ctx, snoozeMin)), receiverIntent(ReminderReceiver.ACTION_SNOOZE, c.id, base + 2, snoozeMin))
-        val pick = Intent(ctx, SnoozeActivity::class.java)
-            .putExtra(Extras.CUE_ID, c.id)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NO_HISTORY)
-        b.addAction(0, ctx.getString(R.string.snooze_more), PendingIntent.getActivity(ctx, base + 3, pick, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+        when (second) {
+            SecondAction.SnoozePicker -> {
+                val pick = Intent(ctx, SnoozeActivity::class.java)
+                    .putExtra(Extras.CUE_ID, c.id)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NO_HISTORY)
+                b.addAction(0, ctx.getString(R.string.snooze_more), PendingIntent.getActivity(ctx, base + 3, pick, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            }
+            is SecondAction.MoveTo -> b.addAction(
+                0, ctx.getString(R.string.move_to, Fmt.time(ctx, second.time)),
+                receiverIntent(ReminderReceiver.ACTION_MOVE, c.id, base + 4, second.time.hour * 60 + second.time.minute),
+            )
+        }
         nm.notify(NotificationIds.reminder(c.id), b.build())
+        val titles = listOf(t.title) + others.mapNotNull { it.notification.extras.getCharSequence(NotificationCompat.EXTRA_TITLE) }
+        if (titles.size >= 2) postSummary(channel, titles)
     }
 
-    fun cancelReminder(cueId: Long) = nm.cancel(NotificationIds.reminder(cueId))
+    @SuppressLint("MissingPermission")
+    private fun postSummary(channel: String, titles: List<CharSequence>) {
+        val title = ctx.resources.getQuantityString(R.plurals.bundle_title, titles.size, titles.size)
+        val style = NotificationCompat.InboxStyle().setBigContentTitle(title)
+        titles.forEach { style.addLine(it) }
+        nm.notify(
+            NotificationIds.BUNDLE,
+            NotificationCompat.Builder(ctx, channel)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setColor(accent)
+                .setContentTitle(title)
+                .setStyle(style)
+                .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                .setGroup(GROUP)
+                .setGroupSummary(true)
+                .setSilent(true)
+                .setAutoCancel(true)
+                .setContentIntent(openAppIntent(903, route = "home"))
+                .build(),
+        )
+    }
+
+    fun cancelReminder(cueId: Long) {
+        nm.cancel(NotificationIds.reminder(cueId))
+        if (otherReminders(cueId).size < 2) nm.cancel(NotificationIds.BUNDLE)
+    }
 
     @SuppressLint("MissingPermission")
     fun focusOngoing(s: FocusSessionEntity) {
@@ -167,6 +226,24 @@ class Notifier(private val ctx: Context) {
     }
 
     fun cancelFocusDone() = nm.cancel(NotificationIds.FOCUS_DONE)
+
+    /** One quiet note about the place the user stopped at, with at most one button. */
+    @SuppressLint("MissingPermission")
+    fun place(channel: String, text: String, actionLabel: String?, action: PendingIntent?, open: PendingIntent) {
+        if (!enabled()) return
+        val b = NotificationCompat.Builder(ctx, channel)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(accent)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setSilent(true)
+            .setAutoCancel(true)
+            .setContentIntent(open)
+        if (actionLabel != null && action != null) b.addAction(0, actionLabel, action)
+        nm.notify(NotificationIds.PLACE, b.build())
+    }
+
+    fun cancelPlace() = nm.cancel(NotificationIds.PLACE)
 
     @SuppressLint("MissingPermission")
     fun briefing(title: String, text: String) {
